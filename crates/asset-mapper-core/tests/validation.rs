@@ -77,6 +77,109 @@ fn non_normalized_3d_connector_quaternion_is_an_error() {
     assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
 }
 
+#[test]
+fn duplicate_source_paths_are_errors() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[1].source_path = pack.assets[0].source_path.clone();
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "duplicate_source_path")
+        .expect("duplicate source path diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn non_finite_dimensions_are_errors() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0].dimensions[0] = f32::NAN;
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_dimensions")
+        .expect("non-finite dimensions diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+}
+
+#[test]
+fn non_finite_bounds_are_errors() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0].bounds.max[1] = f32::INFINITY;
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_bounds")
+        .expect("non-finite bounds diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+}
+
+#[test]
+fn non_finite_snap_tolerance_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0].connectors[0].snap_tolerance = f32::NAN;
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_snap_tolerance")
+        .expect("non-finite snap tolerance diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
+}
+
+#[test]
+fn non_finite_3d_connector_quaternion_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    if let asset_mapper_core::ConnectorFrame::Frame3d {
+        orientation_quat_xyzw,
+        ..
+    } = &mut pack.assets[0].connectors[0].frame
+    {
+        orientation_quat_xyzw[0] = f32::NAN;
+    }
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_connector_quaternion")
+        .expect("non-finite connector quaternion diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
+}
+
+#[test]
+fn placeholder_review_flags_are_warnings() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0]
+        .review_flags
+        .push(asset_mapper_core::ReviewFlag::BoundsPlaceholder);
+    pack.assets[0]
+        .review_flags
+        .push(asset_mapper_core::ReviewFlag::OrientationPlaceholder);
+    pack.assets[0]
+        .review_flags
+        .push(asset_mapper_core::ReviewFlag::PivotPlaceholder);
+
+    let report = validate_pack(&pack);
+
+    let bounds = find_code(&report.diagnostics, "placeholder_bounds")
+        .expect("placeholder bounds diagnostic is present");
+    let orientation = find_code(&report.diagnostics, "placeholder_orientation")
+        .expect("placeholder orientation diagnostic is present");
+    let pivot = find_code(&report.diagnostics, "placeholder_pivot")
+        .expect("placeholder pivot diagnostic is present");
+    assert_eq!(bounds.severity, Severity::Warning);
+    assert_eq!(orientation.severity, Severity::Warning);
+    assert_eq!(pivot.severity, Severity::Warning);
+}
+
 fn find_code<'a>(diagnostics: &'a [Diagnostic], code: &str) -> Option<&'a Diagnostic> {
     diagnostics
         .iter()

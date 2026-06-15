@@ -62,6 +62,10 @@ impl ValidationReport {
         Self { diagnostics }
     }
 
+    pub fn extend(&mut self, diagnostics: impl IntoIterator<Item = Diagnostic>) {
+        self.diagnostics.extend(diagnostics);
+    }
+
     pub fn is_valid(&self) -> bool {
         !self
             .diagnostics

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::diagnostics::{Diagnostic, ValidationReport};
-use crate::schema::{CURRENT_SCHEMA_VERSION, ConnectorFrame, PackRecord};
+use crate::schema::{CURRENT_SCHEMA_VERSION, ConnectorFrame, PackRecord, ReviewFlag};
 
 const QUAT_NORMALIZED_EPSILON: f32 = 0.001;
 const VECTOR_LENGTH_EPSILON: f32 = 0.0001;
@@ -66,12 +66,23 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
     }
 
     let mut asset_ids = HashSet::new();
+    let mut source_paths = HashSet::new();
     for asset in &pack.assets {
         if !asset_ids.insert(asset.asset_id.as_str()) {
             diagnostics.push(
                 Diagnostic::error(
                     "duplicate_asset_id",
                     format!("asset_id `{}` is duplicated", asset.asset_id),
+                )
+                .with_asset(asset.asset_id.clone()),
+            );
+        }
+
+        if !source_paths.insert(asset.source_path.as_str()) {
+            diagnostics.push(
+                Diagnostic::error(
+                    "duplicate_source_path",
+                    format!("source_path `{}` is duplicated", asset.source_path),
                 )
                 .with_asset(asset.asset_id.clone()),
             );
@@ -84,7 +95,24 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
             );
         }
 
-        if !bounds_are_ordered(asset.bounds.min, asset.bounds.max) {
+        if !validate_finite_vec3(&asset.dimensions) {
+            diagnostics.push(
+                Diagnostic::error("non_finite_dimensions", "asset dimensions must be finite")
+                    .with_asset(asset.asset_id.clone()),
+            );
+        }
+
+        let bounds_are_finite =
+            validate_finite_vec3(&asset.bounds.min) && validate_finite_vec3(&asset.bounds.max);
+        if !bounds_are_finite {
+            diagnostics.push(
+                Diagnostic::error(
+                    "non_finite_bounds",
+                    "asset bounds min and max must be finite",
+                )
+                .with_asset(asset.asset_id.clone()),
+            );
+        } else if !bounds_are_ordered(asset.bounds.min, asset.bounds.max) {
             diagnostics.push(
                 Diagnostic::error(
                     "invalid_bounds",
@@ -93,6 +121,12 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
                 .with_asset(asset.asset_id.clone()),
             );
         }
+
+        validate_review_flags(
+            &mut diagnostics,
+            asset.asset_id.as_str(),
+            asset.review_flags.as_slice(),
+        );
 
         let mut connector_ids = HashSet::new();
         for connector in &asset.connectors {
@@ -124,7 +158,13 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
                 );
             }
 
-            if connector.snap_tolerance < 0.0 {
+            if !connector.snap_tolerance.is_finite() {
+                diagnostics.push(
+                    Diagnostic::error("non_finite_snap_tolerance", "snap_tolerance must be finite")
+                        .with_asset(asset.asset_id.clone())
+                        .with_connector(connector.connector_id.clone()),
+                );
+            } else if connector.snap_tolerance < 0.0 {
                 diagnostics.push(
                     Diagnostic::error(
                         "negative_snap_tolerance",
@@ -158,6 +198,20 @@ fn validate_connector_frame(
             orientation_quat_xyzw,
             ..
         } => {
+            if !orientation_quat_xyzw
+                .iter()
+                .all(|component| component.is_finite())
+            {
+                diagnostics.push(
+                    Diagnostic::error(
+                        "non_finite_connector_quaternion",
+                        "3D connector quaternion components must be finite",
+                    )
+                    .with_asset(asset_id.to_owned())
+                    .with_connector(connector_id.to_owned()),
+                );
+                return;
+            }
             let length_squared = orientation_quat_xyzw
                 .iter()
                 .map(|component| component * component)
@@ -194,4 +248,32 @@ fn validate_connector_frame(
 
 fn bounds_are_ordered(min: [f32; 3], max: [f32; 3]) -> bool {
     min[0] <= max[0] && min[1] <= max[1] && min[2] <= max[2]
+}
+
+fn validate_finite_vec3(vector: &[f32; 3]) -> bool {
+    vector.iter().all(|component| component.is_finite())
+}
+
+fn validate_review_flags(
+    diagnostics: &mut Vec<Diagnostic>,
+    asset_id: &str,
+    review_flags: &[ReviewFlag],
+) {
+    for review_flag in review_flags {
+        let (code, message) = match review_flag {
+            ReviewFlag::BoundsPlaceholder => (
+                "placeholder_bounds",
+                "asset bounds are placeholder values and need review",
+            ),
+            ReviewFlag::OrientationPlaceholder => (
+                "placeholder_orientation",
+                "asset orientation is placeholder data and needs review",
+            ),
+            ReviewFlag::PivotPlaceholder => (
+                "placeholder_pivot",
+                "asset pivot is placeholder data and needs review",
+            ),
+        };
+        diagnostics.push(Diagnostic::warning(code, message).with_asset(asset_id.to_owned()));
+    }
 }

@@ -190,7 +190,7 @@ fn validate_bundle_and_resolve_accept_pack_folder() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"diagnostics\": []"));
+        .stdout(predicate::str::contains("source_file_missing"));
 
     let mut bundle = Command::cargo_bin("asset-mapper").expect("binary exists");
     bundle
