@@ -115,3 +115,100 @@ fn resolve_rejects_invalid_connector_orientation_without_null_scene_json() {
         .stderr(predicate::str::contains("invalid connector orientation"))
         .stdout(predicate::str::contains("null").not());
 }
+
+#[test]
+fn init_creates_sidecar_for_pack_folder() {
+    let temp = tempfile::tempdir().expect("temp dir is created");
+    std::fs::write(temp.path().join("wall.glb"), b"wall").expect("asset is written");
+
+    let mut command = Command::cargo_bin("asset-mapper").expect("binary exists");
+    command
+        .args([
+            "init",
+            temp.path().to_str().expect("temp path is utf-8"),
+            "--name",
+            "Dungeon Kit",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"new_assets\""))
+        .stdout(predicate::str::contains("wall.glb"));
+
+    assert!(
+        temp.path()
+            .join(".asset-mapper")
+            .join("pack.assetmap.json")
+            .is_file()
+    );
+}
+
+#[test]
+fn index_reports_drift_and_new_assets() {
+    let temp = tempfile::tempdir().expect("temp dir is created");
+    std::fs::write(temp.path().join("wall.glb"), b"wall-v1").expect("asset is written");
+
+    let mut init = Command::cargo_bin("asset-mapper").expect("binary exists");
+    init.args([
+        "init",
+        temp.path().to_str().expect("temp path is utf-8"),
+        "--name",
+        "Dungeon Kit",
+    ])
+    .assert()
+    .success();
+
+    std::fs::write(temp.path().join("wall.glb"), b"wall-v2").expect("asset changes");
+    std::fs::write(temp.path().join("floor.glb"), b"floor").expect("new asset is written");
+
+    let mut index = Command::cargo_bin("asset-mapper").expect("binary exists");
+    index
+        .args(["index", temp.path().to_str().expect("temp path is utf-8")])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"drifted_assets\""))
+        .stdout(predicate::str::contains("wall.glb"))
+        .stdout(predicate::str::contains("\"new_assets\""))
+        .stdout(predicate::str::contains("floor.glb"));
+}
+
+#[test]
+fn validate_bundle_and_resolve_accept_pack_folder() {
+    let temp = tempfile::tempdir().expect("temp dir is created");
+    let metadata_dir = temp.path().join(".asset-mapper");
+    std::fs::create_dir_all(&metadata_dir).expect("metadata dir is created");
+    std::fs::copy(
+        fixture_path("fixtures/phase0/simple_pack.assetmap.json"),
+        metadata_dir.join("pack.assetmap.json"),
+    )
+    .expect("fixture sidecar copies");
+
+    let mut validate = Command::cargo_bin("asset-mapper").expect("binary exists");
+    validate
+        .args([
+            "validate",
+            temp.path().to_str().expect("temp path is utf-8"),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"diagnostics\": []"));
+
+    let mut bundle = Command::cargo_bin("asset-mapper").expect("binary exists");
+    bundle
+        .args(["bundle", temp.path().to_str().expect("temp path is utf-8")])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"pack_id\": \"phase0_corridor\""))
+        .stdout(predicate::str::contains("orientation_quat_xyzw").not());
+
+    let mut resolve = Command::cargo_bin("asset-mapper").expect("binary exists");
+    resolve
+        .args([
+            "resolve",
+            temp.path().to_str().expect("temp path is utf-8"),
+            &fixture_path("fixtures/phase0/simple_plan.json"),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"asset_id\": \"corridor_b\""))
+        .stdout(predicate::str::contains("2.0"));
+}
