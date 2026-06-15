@@ -95,6 +95,8 @@ pub struct AssetRecord {
     pub semantic_tags: Vec<String>,
     pub affordances: Vec<String>,
     pub placement_constraints: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub review_flags: Vec<ReviewFlag>,
     pub connectors: Vec<ConnectorRecord>,
 }
 
@@ -125,6 +127,16 @@ pub enum Pivot {
     BaseCenter,
     Center,
     Custom,
+}
+
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewFlag {
+    BoundsPlaceholder,
+    OrientationPlaceholder,
+    PivotPlaceholder,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]

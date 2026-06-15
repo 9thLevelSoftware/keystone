@@ -29,6 +29,27 @@ pub enum IoError {
         source: std::io::Error,
     },
 
+    #[error("failed to scan directory `{path}`: {source}")]
+    ScanDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to read directory entry under `{path}`: {source}")]
+    ReadDirEntry {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to hash `{path}`: {source}")]
+    HashFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    #[error("failed to derive a relative source path for `{path}` under `{root}`")]
+    StripPackRoot { path: PathBuf, root: PathBuf },
+
     #[error("failed to parse JSON `{path}`: {source}")]
     ParseJson {
         path: PathBuf,
