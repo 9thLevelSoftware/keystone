@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "pack_id": "phase0_invalid_unknown_class",
+  "display_name": "Invalid Unknown Class Fixture",
+  "coordinate_convention": {
+    "handedness": "right",
+    "up_axis": "pos_y",
+    "forward_axis": "pos_z"
+  },
+  "default_units": "meters",
+  "connector_classes": [
+    {
+      "class": "corridor_end",
+      "display_name": "Corridor End"
+    }
+  ],
+  "compatibility_rules": [],
+  "assets": [
+    {
+      "asset_id": "bad_corridor",
+      "source_path": "bad_corridor.glb",
+      "content_hash": "sha256:fixture-bad-corridor",
+      "display_name": "Bad Corridor",
+      "asset_type": "model3d",
+      "bounds": {
+        "min": [-1.0, 0.0, -1.0],
+        "max": [1.0, 2.0, 1.0]
+      },
+      "dimensions": [2.0, 2.0, 2.0],
+      "pivot": "base_center",
+      "up_axis": "pos_y",
+      "forward_axis": "pos_z",
+      "semantic_tags": ["corridor"],
+      "affordances": ["walkable"],
+      "placement_constraints": ["upright_only"],
+      "connectors": [
+        {
+          "connector_id": "front",
+          "display_name": "Front End",
+          "class": "missing_class",
+          "role": "symmetric",
+          "frame": {
+            "kind": "frame3d",
+            "position": [0.0, 0.0, 1.0],
+            "orientation_quat_xyzw": [0.0, 0.0, 0.0, 1.0]
+          },
+          "mating_axis": "pos_z",
+          "up_reference": "pos_y",
+          "snap_tolerance": 0.01
+        }
+      ]
+    }
+  ]
+}

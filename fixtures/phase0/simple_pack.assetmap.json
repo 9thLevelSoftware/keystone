@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "pack_id": "phase0_corridor",
+  "display_name": "Phase 0 Corridor Fixture",
+  "coordinate_convention": {
+    "handedness": "right",
+    "up_axis": "pos_y",
+    "forward_axis": "pos_z"
+  },
+  "default_units": "meters",
+  "connector_classes": [
+    {
+      "class": "corridor_end",
+      "display_name": "Corridor End"
+    }
+  ],
+  "compatibility_rules": [
+    {
+      "a_class": "corridor_end",
+      "b_class": "corridor_end",
+      "rotation": {
+        "kind": "locked"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "corridor_a",
+      "source_path": "corridor_a.glb",
+      "content_hash": "sha256:fixture-corridor-a",
+      "display_name": "Corridor Segment A",
+      "asset_type": "model3d",
+      "bounds": {
+        "min": [-1.0, 0.0, -1.0],
+        "max": [1.0, 2.0, 1.0]
+      },
+      "dimensions": [2.0, 2.0, 2.0],
+      "pivot": "base_center",
+      "up_axis": "pos_y",
+      "forward_axis": "pos_z",
+      "semantic_tags": ["corridor", "wall", "floor"],
+      "affordances": ["walkable"],
+      "placement_constraints": ["upright_only"],
+      "connectors": [
+        {
+          "connector_id": "front",
+          "display_name": "Front End",
+          "class": "corridor_end",
+          "role": "symmetric",
+          "frame": {
+            "kind": "frame3d",
+            "position": [0.0, 0.0, 1.0],
+            "orientation_quat_xyzw": [0.0, 0.0, 0.0, 1.0]
+          },
+          "mating_axis": "pos_z",
+          "up_reference": "pos_y",
+          "snap_tolerance": 0.01
+        }
+      ]
+    },
+    {
+      "asset_id": "corridor_b",
+      "source_path": "corridor_b.glb",
+      "content_hash": "sha256:fixture-corridor-b",
+      "display_name": "Corridor Segment B",
+      "asset_type": "model3d",
+      "bounds": {
+        "min": [-1.0, 0.0, -1.0],
+        "max": [1.0, 2.0, 1.0]
+      },
+      "dimensions": [2.0, 2.0, 2.0],
+      "pivot": "base_center",
+      "up_axis": "pos_y",
+      "forward_axis": "pos_z",
+      "semantic_tags": ["corridor", "wall", "floor"],
+      "affordances": ["walkable"],
+      "placement_constraints": ["upright_only"],
+      "connectors": [
+        {
+          "connector_id": "back",
+          "display_name": "Back End",
+          "class": "corridor_end",
+          "role": "symmetric",
+          "frame": {
+            "kind": "frame3d",
+            "position": [0.0, 0.0, -1.0],
+            "orientation_quat_xyzw": [0.0, 0.0, 0.0, 1.0]
+          },
+          "mating_axis": "pos_z",
+          "up_reference": "pos_y",
+          "snap_tolerance": 0.01
+        }
+      ]
+    }
+  ]
+}
