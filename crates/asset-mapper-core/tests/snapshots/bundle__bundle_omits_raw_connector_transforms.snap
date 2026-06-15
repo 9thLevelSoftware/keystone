@@ -1,0 +1,77 @@
+---
+source: crates/asset-mapper-core/tests/bundle.rs
+expression: bundle_json
+---
+{
+  "assets": [
+    {
+      "affordances": [
+        "walkable"
+      ],
+      "asset_id": "corridor_a",
+      "asset_type": "model3d",
+      "connectors": [
+        {
+          "class": "corridor_end",
+          "connector_id": "front",
+          "display_name": "Front End",
+          "role": "symmetric"
+        }
+      ],
+      "dimensions": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "display_name": "Corridor Segment A",
+      "placement_constraints": [
+        "upright_only"
+      ],
+      "semantic_tags": [
+        "corridor",
+        "wall",
+        "floor"
+      ]
+    },
+    {
+      "affordances": [
+        "walkable"
+      ],
+      "asset_id": "corridor_b",
+      "asset_type": "model3d",
+      "connectors": [
+        {
+          "class": "corridor_end",
+          "connector_id": "back",
+          "display_name": "Back End",
+          "role": "symmetric"
+        }
+      ],
+      "dimensions": [
+        2.0,
+        2.0,
+        2.0
+      ],
+      "display_name": "Corridor Segment B",
+      "placement_constraints": [
+        "upright_only"
+      ],
+      "semantic_tags": [
+        "corridor",
+        "wall",
+        "floor"
+      ]
+    }
+  ],
+  "compatibility_rules": [
+    {
+      "a_class": "corridor_end",
+      "b_class": "corridor_end",
+      "rotation": {
+        "kind": "locked"
+      }
+    }
+  ],
+  "display_name": "Phase 0 Corridor Fixture",
+  "pack_id": "phase0_corridor"
+}
