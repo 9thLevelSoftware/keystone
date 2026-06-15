@@ -8,6 +8,7 @@ use crate::schema::{
 };
 
 const AXIS_EPSILON: f32 = 0.000_001;
+const QUATERNION_EPSILON: f32 = 0.000_001;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct AssetPlacement {
@@ -57,6 +58,12 @@ pub enum ResolveError {
 
     #[error("connector `{connector_id}` on asset `{asset_id}` has invalid mating/up axes")]
     InvalidConnectorAxes {
+        asset_id: String,
+        connector_id: String,
+    },
+
+    #[error("connector `{connector_id}` on asset `{asset_id}` has invalid connector orientation")]
+    InvalidConnectorOrientation {
         asset_id: String,
         connector_id: String,
     },
@@ -196,10 +203,23 @@ fn connector_pose(asset: &AssetRecord, connector: &ConnectorRecord) -> Result<Po
         ConnectorFrame::Frame3d {
             position,
             orientation_quat_xyzw,
-        } => Ok(Pose3 {
-            translation: Vec3::from_array(*position),
-            rotation: Quat::from_array(*orientation_quat_xyzw).normalize(),
-        }),
+        } => {
+            let length_squared = orientation_quat_xyzw
+                .iter()
+                .map(|component| component * component)
+                .sum::<f32>();
+            if !length_squared.is_finite() || length_squared <= QUATERNION_EPSILON {
+                return Err(ResolveError::InvalidConnectorOrientation {
+                    asset_id: asset.asset_id.clone(),
+                    connector_id: connector.connector_id.clone(),
+                });
+            }
+
+            Ok(Pose3 {
+                translation: Vec3::from_array(*position),
+                rotation: Quat::from_array(*orientation_quat_xyzw).normalize(),
+            })
+        }
         ConnectorFrame::Frame2d { .. } => Err(ResolveError::Non3dConnector {
             asset_id: asset.asset_id.clone(),
             connector_id: connector.connector_id.clone(),

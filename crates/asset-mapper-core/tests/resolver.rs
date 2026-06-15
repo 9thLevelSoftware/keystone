@@ -229,6 +229,44 @@ fn rejects_frame2d_connectors() {
 }
 
 #[test]
+fn rejects_zero_quaternion_on_placed_connector_orientation() {
+    let mut pack = load_pack();
+    set_connector_orientation(&mut pack, "corridor_b", "back", [0.0, 0.0, 0.0, 0.0]);
+    let plan = load_plan();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert_invalid_connector_orientation(error, "corridor_b", "back");
+}
+
+#[test]
+fn rejects_zero_quaternion_on_anchor_connector_orientation() {
+    let mut pack = load_pack();
+    set_connector_orientation(&mut pack, "corridor_a", "front", [0.0, 0.0, 0.0, 0.0]);
+    let plan = load_plan();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert_invalid_connector_orientation(error, "corridor_a", "front");
+}
+
+#[test]
+fn rejects_non_finite_connector_orientation() {
+    let mut pack = load_pack();
+    set_connector_orientation(
+        &mut pack,
+        "corridor_b",
+        "back",
+        [0.0, f32::INFINITY, 0.0, 1.0],
+    );
+    let plan = load_plan();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert_invalid_connector_orientation(error, "corridor_b", "back");
+}
+
+#[test]
 fn resolves_connector_orientation_from_mating_axis_and_up_reference() {
     let mut pack = load_pack();
     for asset in &mut pack.assets {
@@ -302,6 +340,44 @@ proptest! {
         let length_squared = quat.iter().map(|component| component * component).sum::<f32>();
         prop_assert!((length_squared - 1.0).abs() < 0.001);
     }
+}
+
+fn set_connector_orientation(
+    pack: &mut PackRecord,
+    asset_id: &str,
+    connector_id: &str,
+    orientation: [f32; 4],
+) {
+    let connector = pack
+        .assets
+        .iter_mut()
+        .find(|asset| asset.asset_id == asset_id)
+        .expect("asset exists")
+        .connectors
+        .iter_mut()
+        .find(|connector| connector.connector_id == connector_id)
+        .expect("connector exists");
+    match &mut connector.frame {
+        ConnectorFrame::Frame3d {
+            orientation_quat_xyzw,
+            ..
+        } => *orientation_quat_xyzw = orientation,
+        ConnectorFrame::Frame2d { .. } => panic!("test connector must be 3D"),
+    }
+}
+
+fn assert_invalid_connector_orientation(
+    error: ResolveError,
+    expected_asset_id: &str,
+    expected_connector_id: &str,
+) {
+    assert!(matches!(
+        error,
+        ResolveError::InvalidConnectorOrientation {
+            asset_id,
+            connector_id,
+        } if asset_id == expected_asset_id && connector_id == expected_connector_id
+    ));
 }
 
 fn assert_close(actual: f32, expected: f32) {
