@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use asset_mapper_core::{AssemblyPlan, LlmBundle, PackRecord, resolve_plan, validate_pack};
@@ -61,23 +61,21 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
 }
 
 fn read_pack(path: PathBuf) -> Result<PackRecord, Box<dyn std::error::Error>> {
-    let input = fs::read_to_string(resolve_input_path(&path).unwrap_or(path))?;
+    let input = fs::read_to_string(&path).map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("failed to read pack {}: {error}", path.display()),
+        )
+    })?;
     Ok(serde_json::from_str(&input)?)
 }
 
 fn read_plan(path: PathBuf) -> Result<AssemblyPlan, Box<dyn std::error::Error>> {
-    let input = fs::read_to_string(resolve_input_path(&path).unwrap_or(path))?;
+    let input = fs::read_to_string(&path).map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("failed to read plan {}: {error}", path.display()),
+        )
+    })?;
     Ok(serde_json::from_str(&input)?)
-}
-
-fn resolve_input_path(path: &Path) -> Option<PathBuf> {
-    if path.is_absolute() || path.exists() {
-        return Some(path.to_path_buf());
-    }
-
-    let current_dir = std::env::current_dir().ok()?;
-    current_dir
-        .ancestors()
-        .map(|ancestor| ancestor.join(path))
-        .find(|candidate| candidate.exists())
 }

@@ -1,12 +1,23 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
+fn fixture_path(relative: &str) -> String {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative)
+        .to_string_lossy()
+        .into_owned()
+}
+
 #[test]
 fn validate_accepts_valid_fixture() {
     let mut command = Command::cargo_bin("asset-mapper").expect("binary exists");
 
     command
-        .args(["validate", "fixtures/phase0/simple_pack.assetmap.json"])
+        .args([
+            "validate",
+            &fixture_path("fixtures/phase0/simple_pack.assetmap.json"),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"diagnostics\": []"));
@@ -19,11 +30,25 @@ fn validate_rejects_invalid_fixture() {
     command
         .args([
             "validate",
-            "fixtures/phase0/invalid_pack_unknown_class.assetmap.json",
+            &fixture_path("fixtures/phase0/invalid_pack_unknown_class.assetmap.json"),
         ])
         .assert()
-        .failure()
+        .code(1)
         .stdout(predicate::str::contains("unknown_connector_class"));
+}
+
+#[test]
+fn validate_missing_relative_path_fails() {
+    let mut command = Command::cargo_bin("asset-mapper").expect("binary exists");
+
+    command
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .args(["validate", "fixtures/phase0/simple_pack.assetmap.json"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "fixtures/phase0/simple_pack.assetmap.json",
+        ));
 }
 
 #[test]
@@ -31,7 +56,10 @@ fn bundle_emits_llm_context() {
     let mut command = Command::cargo_bin("asset-mapper").expect("binary exists");
 
     command
-        .args(["bundle", "fixtures/phase0/simple_pack.assetmap.json"])
+        .args([
+            "bundle",
+            &fixture_path("fixtures/phase0/simple_pack.assetmap.json"),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"pack_id\": \"phase0_corridor\""))
@@ -46,8 +74,8 @@ fn resolve_emits_resolved_scene() {
     command
         .args([
             "resolve",
-            "fixtures/phase0/simple_pack.assetmap.json",
-            "fixtures/phase0/simple_plan.json",
+            &fixture_path("fixtures/phase0/simple_pack.assetmap.json"),
+            &fixture_path("fixtures/phase0/simple_plan.json"),
         ])
         .assert()
         .success()
