@@ -42,7 +42,7 @@ pub fn init_pack_folder(
     }
 
     let indexed = scan_assets(pack_root)?;
-    let pack_id = slug_from_text(&display_name);
+    let pack_id = pack_id_from_display_name(&display_name);
     let mut used_asset_ids = HashSet::new();
     let assets = indexed
         .iter()
@@ -300,6 +300,15 @@ fn unique_asset_id(source_path: &str, used_asset_ids: &mut HashSet<String>) -> S
     }
 
     unreachable!("unbounded suffix loop always returns");
+}
+
+fn pack_id_from_display_name(display_name: &str) -> String {
+    let slug = slug_from_text(display_name);
+    if slug.is_empty() {
+        "pack".to_owned()
+    } else {
+        slug
+    }
 }
 
 fn slug_from_text(input: &str) -> String {
