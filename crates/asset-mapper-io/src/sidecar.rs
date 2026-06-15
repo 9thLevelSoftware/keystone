@@ -41,6 +41,12 @@ pub fn resolve_pack_input_path(input: impl AsRef<Path>) -> Result<ResolvedPackIn
     }
 
     if input.is_file() {
+        if !is_direct_sidecar_path(input) {
+            return Err(IoError::InvalidPackInput {
+                path: input.to_path_buf(),
+            });
+        }
+
         return Ok(ResolvedPackInput {
             kind: PackInputKind::DirectSidecar,
             sidecar_path: input.to_path_buf(),
@@ -97,7 +103,17 @@ pub fn write_pack_sidecar(
     Ok(sidecar_path)
 }
 
+fn is_direct_sidecar_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".assetmap.json"))
+}
+
 fn infer_pack_root_from_sidecar(sidecar_path: &Path) -> Option<PathBuf> {
+    if sidecar_path.file_name()?.to_str()? != SIDECAR_FILE {
+        return None;
+    }
+
     let metadata_dir = sidecar_path.parent()?;
     if metadata_dir.file_name()?.to_str()? != METADATA_DIR {
         return None;
