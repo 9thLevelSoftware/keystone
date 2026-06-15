@@ -33,10 +33,42 @@ fn resolves_simple_corridor_attachment() {
     assert_eq!(scene.placements.len(), 2);
     assert_eq!(scene.placements[0].asset_id, "corridor_a");
     assert_eq!(scene.placements[0].transform.translation, [0.0, 0.0, 0.0]);
+    assert_eq!(
+        scene.placements[0].transform.rotation_quat_xyzw,
+        [0.0, 0.0, 0.0, 1.0]
+    );
     assert_eq!(scene.placements[1].asset_id, "corridor_b");
     assert_close(scene.placements[1].transform.translation[0], 0.0);
     assert_close(scene.placements[1].transform.translation[1], 0.0);
     assert_close(scene.placements[1].transform.translation[2], 0.0);
+}
+
+#[test]
+fn rejects_unknown_root_asset() {
+    let pack = load_pack();
+    let mut plan = load_plan();
+    plan.root_asset_id = "missing_root".to_owned();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert!(matches!(
+        error,
+        ResolveError::UnknownRootAsset { root_asset_id } if root_asset_id == "missing_root"
+    ));
+}
+
+#[test]
+fn rejects_unknown_placed_asset() {
+    let pack = load_pack();
+    let mut plan = load_plan();
+    plan.operations[0].placed_asset_id = "missing_placed".to_owned();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert!(matches!(
+        error,
+        ResolveError::UnknownPlacedAsset { asset_id } if asset_id == "missing_placed"
+    ));
 }
 
 #[test]
@@ -65,6 +97,40 @@ fn rejects_unknown_anchor_asset_with_anchor_specific_error() {
         error.to_string(),
         "anchor asset `missing_anchor` does not exist in the pack"
     );
+}
+
+#[test]
+fn rejects_unknown_placed_connector() {
+    let pack = load_pack();
+    let mut plan = load_plan();
+    plan.operations[0].placed_connector_id = "missing_connector".to_owned();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert!(matches!(
+        error,
+        ResolveError::UnknownConnector {
+            asset_id,
+            connector_id,
+        } if asset_id == "corridor_b" && connector_id == "missing_connector"
+    ));
+}
+
+#[test]
+fn rejects_unknown_anchor_connector() {
+    let pack = load_pack();
+    let mut plan = load_plan();
+    plan.operations[0].anchor_connector_id = "missing_connector".to_owned();
+
+    let error = resolve_plan(&pack, &plan).expect_err("plan should fail");
+
+    assert!(matches!(
+        error,
+        ResolveError::UnknownConnector {
+            asset_id,
+            connector_id,
+        } if asset_id == "corridor_a" && connector_id == "missing_connector"
+    ));
 }
 
 #[test]
@@ -179,6 +245,48 @@ fn resolves_connector_orientation_from_mating_axis_and_up_reference() {
     let (placed_mating, placed_up) = connector_world_axes(&pack, &scene, "corridor_b", "back");
     assert_vec3_close(placed_mating.normalize(), -anchor_mating.normalize());
     assert_vec3_close(placed_up.normalize(), anchor_up.normalize());
+}
+
+#[test]
+fn accepts_compatibility_rule_declared_in_reverse_order() {
+    let mut pack = load_pack();
+    pack.assets[0].connectors[0].class = "anchor_end".to_owned();
+    pack.assets[1].connectors[0].class = "placed_end".to_owned();
+    pack.compatibility_rules = vec![asset_mapper_core::CompatibilityRule {
+        a_class: "anchor_end".to_owned(),
+        b_class: "placed_end".to_owned(),
+        rotation: AllowedRotation::Locked,
+    }];
+    let plan = load_plan();
+
+    let scene = resolve_plan(&pack, &plan).expect("reverse-order compatibility resolves");
+
+    assert_eq!(scene.placements.len(), 2);
+}
+
+#[test]
+fn resolves_operations_in_plan_order() {
+    let mut pack = load_pack();
+    let mut corridor_c = pack.assets[1].clone();
+    corridor_c.asset_id = "corridor_c".to_owned();
+    corridor_c.display_name = "Corridor Segment C".to_owned();
+    corridor_c.source_path = "corridor_c.glb".to_owned();
+    corridor_c.content_hash = "sha256:fixture-corridor-c".to_owned();
+    pack.assets.push(corridor_c);
+
+    let mut plan = load_plan();
+    let mut second_operation = plan.operations[0].clone();
+    second_operation.placed_asset_id = "corridor_c".to_owned();
+    second_operation.anchor_asset_id = "corridor_b".to_owned();
+    second_operation.anchor_connector_id = "back".to_owned();
+    plan.operations.push(second_operation);
+
+    let scene = resolve_plan(&pack, &plan).expect("multi-operation plan resolves");
+
+    assert_eq!(scene.placements.len(), 3);
+    assert_eq!(scene.placements[0].asset_id, "corridor_a");
+    assert_eq!(scene.placements[1].asset_id, "corridor_b");
+    assert_eq!(scene.placements[2].asset_id, "corridor_c");
 }
 
 proptest! {
