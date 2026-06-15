@@ -12,8 +12,8 @@ fn valid_fixture_has_no_validation_errors() {
     let report = validate_pack(&pack);
 
     assert!(
-        report.is_valid(),
-        "expected no validation errors, got {:#?}",
+        report.diagnostics.is_empty(),
+        "expected no validation diagnostics, got {:#?}",
         report.diagnostics
     );
 }
@@ -24,10 +24,11 @@ fn unknown_connector_class_is_an_error() {
     let report = validate_pack(&pack);
 
     assert!(!report.is_valid());
-    assert!(contains_code(
-        &report.diagnostics,
-        "unknown_connector_class"
-    ));
+    let diagnostic = find_code(&report.diagnostics, "unknown_connector_class")
+        .expect("unknown connector class diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("bad_corridor"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
 }
 
 #[test]
@@ -35,9 +36,10 @@ fn connector_class_without_rule_is_a_warning() {
     let pack = load_pack("fixtures/phase0/invalid_pack_unknown_class.assetmap.json");
     let report = validate_pack(&pack);
 
-    assert!(report.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "connector_class_has_no_rule" && diagnostic.severity == Severity::Warning
-    }));
+    let diagnostic = find_code(&report.diagnostics, "connector_class_has_no_rule")
+        .expect("connector class without rule diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Warning);
+    assert!(diagnostic.connector_id.is_none());
 }
 
 #[test]
@@ -48,7 +50,10 @@ fn duplicate_asset_ids_are_errors() {
     let report = validate_pack(&pack);
 
     assert!(!report.is_valid());
-    assert!(contains_code(&report.diagnostics, "duplicate_asset_id"));
+    let diagnostic = find_code(&report.diagnostics, "duplicate_asset_id")
+        .expect("duplicate asset id diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
 }
 
 #[test]
@@ -65,12 +70,15 @@ fn non_normalized_3d_connector_quaternion_is_an_error() {
     let report = validate_pack(&pack);
 
     assert!(!report.is_valid());
-    assert!(contains_code(
-        &report.diagnostics,
-        "connector_quaternion_not_normalized"
-    ));
+    let diagnostic = find_code(&report.diagnostics, "connector_quaternion_not_normalized")
+        .expect("non-normalized connector quaternion diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
 }
 
-fn contains_code(diagnostics: &[Diagnostic], code: &str) -> bool {
-    diagnostics.iter().any(|diagnostic| diagnostic.code == code)
+fn find_code<'a>(diagnostics: &'a [Diagnostic], code: &str) -> Option<&'a Diagnostic> {
+    diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == code)
 }
