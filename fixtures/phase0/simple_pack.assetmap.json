@@ -86,7 +86,7 @@
             "position": [0.0, 0.0, -1.0],
             "orientation_quat_xyzw": [0.0, 0.0, 0.0, 1.0]
           },
-          "mating_axis": "pos_z",
+          "mating_axis": "neg_z",
           "up_reference": "pos_y",
           "snap_tolerance": 0.01
         }

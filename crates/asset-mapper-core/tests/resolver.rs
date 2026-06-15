@@ -40,7 +40,15 @@ fn resolves_simple_corridor_attachment() {
     assert_eq!(scene.placements[1].asset_id, "corridor_b");
     assert_close(scene.placements[1].transform.translation[0], 0.0);
     assert_close(scene.placements[1].transform.translation[1], 0.0);
-    assert_close(scene.placements[1].transform.translation[2], 0.0);
+    assert_close(scene.placements[1].transform.translation[2], 2.0);
+    assert_vec3_close(
+        Vec3::from_array(scene.placements[1].transform.translation),
+        Vec3::new(0.0, 0.0, 2.0),
+    );
+    assert_eq!(
+        scene.placements[1].transform.rotation_quat_xyzw,
+        [0.0, 0.0, 0.0, 1.0]
+    );
 }
 
 #[test]
