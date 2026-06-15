@@ -110,6 +110,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "asset-mapper-io"
+version = "0.1.0"
+dependencies = [
+ "asset-mapper-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
