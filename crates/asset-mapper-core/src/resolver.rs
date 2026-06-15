@@ -1,12 +1,13 @@
 use std::collections::HashMap;
-use std::f32::consts::PI;
 
-use glam::{Quat, Vec3};
+use glam::{Mat3, Quat, Vec3};
 
 use crate::schema::{
-    AllowedRotation, AssemblyPlan, AssetRecord, CompatibilityRule, ConnectorFrame, ConnectorRecord,
-    PackRecord, Transform3d,
+    AllowedRotation, AssemblyPlan, AssetRecord, Axis3, CompatibilityRule, ConnectorFrame,
+    ConnectorRecord, PackRecord, Transform3d,
 };
+
+const AXIS_EPSILON: f32 = 0.000_001;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct AssetPlacement {
@@ -26,6 +27,9 @@ pub enum ResolveError {
 
     #[error("placed asset `{asset_id}` does not exist in the pack")]
     UnknownPlacedAsset { asset_id: String },
+
+    #[error("anchor asset `{anchor_asset_id}` does not exist in the pack")]
+    UnknownAnchorAsset { anchor_asset_id: String },
 
     #[error("anchor asset `{anchor_asset_id}` has not been placed")]
     AnchorAssetNotPlaced { anchor_asset_id: String },
@@ -50,6 +54,12 @@ pub enum ResolveError {
 
     #[error("rotation choice {choice} is not permitted")]
     RotationChoiceNotAllowed { choice: f32 },
+
+    #[error("connector `{connector_id}` on asset `{asset_id}` has invalid mating/up axes")]
+    InvalidConnectorAxes {
+        asset_id: String,
+        connector_id: String,
+    },
 }
 
 pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedScene, ResolveError> {
@@ -73,8 +83,8 @@ pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedSc
             }
         })?;
         let anchor_asset = find_asset(pack, &operation.anchor_asset_id).ok_or_else(|| {
-            ResolveError::UnknownPlacedAsset {
-                asset_id: operation.anchor_asset_id.clone(),
+            ResolveError::UnknownAnchorAsset {
+                anchor_asset_id: operation.anchor_asset_id.clone(),
             }
         })?;
 
@@ -97,24 +107,20 @@ pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedSc
             anchor_class: anchor_connector.class.clone(),
         })?;
 
-        validate_rotation_choice(&rule.rotation, operation.rotation_choice_deg)?;
+        let rotation_choice_deg =
+            validate_rotation_choice(&rule.rotation, operation.rotation_choice_deg)?;
 
         let placed_connector_local = connector_pose(placed_asset, placed_connector)?;
         let anchor_connector_local = connector_pose(anchor_asset, anchor_connector)?;
         let anchor_connector_world = anchor_asset_pose.then(anchor_connector_local);
-
-        let flip = Pose3 {
-            translation: Vec3::ZERO,
-            rotation: Quat::from_rotation_y(PI),
-        };
-        let roll = Pose3 {
-            translation: Vec3::ZERO,
-            rotation: Quat::from_rotation_z(
-                operation.rotation_choice_deg.unwrap_or(0.0).to_radians(),
-            ),
-        };
-
-        let desired_placed_connector_world = anchor_connector_world.then(flip).then(roll);
+        let desired_placed_connector_world = desired_connector_world_pose(
+            anchor_asset,
+            anchor_connector,
+            anchor_connector_world,
+            placed_asset,
+            placed_connector,
+            rotation_choice_deg,
+        )?;
         let placed_asset_world =
             desired_placed_connector_world.then(placed_connector_local.inverse());
 
@@ -160,40 +166,135 @@ fn find_compatibility_rule<'a>(
 fn validate_rotation_choice(
     allowed_rotation: &AllowedRotation,
     rotation_choice_deg: Option<f32>,
-) -> Result<(), ResolveError> {
+) -> Result<f32, ResolveError> {
     let choice = rotation_choice_deg.unwrap_or(0.0);
+    if !choice.is_finite() {
+        return Err(ResolveError::RotationChoiceNotAllowed { choice });
+    }
+
     match allowed_rotation {
         AllowedRotation::Locked => {
             if choice.abs() < 0.001 {
-                Ok(())
+                Ok(choice)
             } else {
                 Err(ResolveError::RotationChoiceNotAllowed { choice })
             }
         }
         AllowedRotation::StepsDeg { values } => {
             if values.iter().any(|value| (*value - choice).abs() < 0.001) {
-                Ok(())
+                Ok(choice)
             } else {
                 Err(ResolveError::RotationChoiceNotAllowed { choice })
             }
         }
-        AllowedRotation::Free => Ok(()),
+        AllowedRotation::Free => Ok(choice),
     }
 }
 
 fn connector_pose(asset: &AssetRecord, connector: &ConnectorRecord) -> Result<Pose3, ResolveError> {
-    match connector.frame {
+    match &connector.frame {
         ConnectorFrame::Frame3d {
             position,
             orientation_quat_xyzw,
         } => Ok(Pose3 {
-            translation: Vec3::from_array(position),
-            rotation: Quat::from_array(orientation_quat_xyzw).normalize(),
+            translation: Vec3::from_array(*position),
+            rotation: Quat::from_array(*orientation_quat_xyzw).normalize(),
         }),
         ConnectorFrame::Frame2d { .. } => Err(ResolveError::Non3dConnector {
             asset_id: asset.asset_id.clone(),
             connector_id: connector.connector_id.clone(),
         }),
+    }
+}
+
+fn desired_connector_world_pose(
+    anchor_asset: &AssetRecord,
+    anchor_connector: &ConnectorRecord,
+    anchor_connector_world: Pose3,
+    placed_asset: &AssetRecord,
+    placed_connector: &ConnectorRecord,
+    rotation_choice_deg: f32,
+) -> Result<Pose3, ResolveError> {
+    let anchor_mating_world =
+        (anchor_connector_world.rotation * axis_to_vec(anchor_connector.mating_axis)).normalize();
+    let anchor_up_world =
+        anchor_connector_world.rotation * axis_to_vec(anchor_connector.up_reference);
+    let desired_mating_world = -anchor_mating_world;
+    let desired_up_world = project_axis(
+        anchor_up_world,
+        desired_mating_world,
+        anchor_asset,
+        anchor_connector,
+    )?;
+    let rolled_up_world =
+        Quat::from_axis_angle(desired_mating_world, rotation_choice_deg.to_radians())
+            * desired_up_world;
+
+    Ok(Pose3 {
+        translation: anchor_connector_world.translation,
+        rotation: connector_rotation_from_axes(
+            placed_asset,
+            placed_connector,
+            desired_mating_world,
+            rolled_up_world,
+        )?,
+    })
+}
+
+fn connector_rotation_from_axes(
+    asset: &AssetRecord,
+    connector: &ConnectorRecord,
+    desired_mating_world: Vec3,
+    desired_up_world: Vec3,
+) -> Result<Quat, ResolveError> {
+    let local_mating = axis_to_vec(connector.mating_axis);
+    let local_up = project_axis(
+        axis_to_vec(connector.up_reference),
+        local_mating,
+        asset,
+        connector,
+    )?;
+    let world_up = project_axis(desired_up_world, desired_mating_world, asset, connector)?;
+
+    let local_basis = basis_from_mating_and_up(local_mating, local_up);
+    let world_basis = basis_from_mating_and_up(desired_mating_world, world_up);
+    Ok(Quat::from_mat3(&(world_basis * local_basis.transpose())).normalize())
+}
+
+fn basis_from_mating_and_up(mating: Vec3, up: Vec3) -> Mat3 {
+    Mat3::from_cols(
+        mating.normalize(),
+        up.normalize(),
+        mating.cross(up).normalize(),
+    )
+}
+
+fn project_axis(
+    axis: Vec3,
+    plane_normal: Vec3,
+    asset: &AssetRecord,
+    connector: &ConnectorRecord,
+) -> Result<Vec3, ResolveError> {
+    let normal = plane_normal.normalize();
+    let projected = axis - normal * axis.dot(normal);
+    if projected.length_squared() <= AXIS_EPSILON {
+        Err(ResolveError::InvalidConnectorAxes {
+            asset_id: asset.asset_id.clone(),
+            connector_id: connector.connector_id.clone(),
+        })
+    } else {
+        Ok(projected.normalize())
+    }
+}
+
+fn axis_to_vec(axis: Axis3) -> Vec3 {
+    match axis {
+        Axis3::PosX => Vec3::X,
+        Axis3::NegX => -Vec3::X,
+        Axis3::PosY => Vec3::Y,
+        Axis3::NegY => -Vec3::Y,
+        Axis3::PosZ => Vec3::Z,
+        Axis3::NegZ => -Vec3::Z,
     }
 }
 
