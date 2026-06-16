@@ -16,13 +16,13 @@ use crate::dto::{
 use crate::error::EditorCommandError;
 
 pub fn open_pack_folder(path: impl AsRef<Path>) -> Result<EditorPackState, EditorCommandError> {
-    let path = path.as_ref();
-    let loaded = read_pack_from_input(path)?;
+    let input_path = canonicalize_existing_path(path)?;
+    let loaded = read_pack_from_input(&input_path)?;
     let pack_root = loaded
         .resolved
         .pack_root
         .clone()
-        .unwrap_or_else(|| path.to_path_buf());
+        .unwrap_or_else(|| input_path.clone());
     state_from_pack(pack_root, loaded.resolved.sidecar_path, loaded.pack, false)
 }
 
@@ -30,24 +30,27 @@ pub fn init_pack_folder(
     path: impl AsRef<Path>,
     display_name: String,
 ) -> Result<EditorPackState, EditorCommandError> {
-    let path = path.as_ref();
-    io_init_pack_folder(path, display_name)?;
-    open_pack_folder(path)
+    let pack_root = canonicalize_existing_path(path)?;
+    io_init_pack_folder(&pack_root, display_name)?;
+    open_pack_folder(&pack_root)
 }
 
 pub fn index_pack_folder(path: impl AsRef<Path>) -> Result<IndexEditorResult, EditorCommandError> {
-    let path = path.as_ref();
-    let report = io_index_pack_folder(path)?;
-    let state = open_pack_folder(path)?;
+    let pack_root = canonicalize_existing_path(path)?;
+    let loaded = read_pack_from_input(&pack_root)?;
+    validate_editor_source_paths(&pack_root, &loaded.pack)?;
+    let report = io_index_pack_folder(&pack_root)?;
+    let state = open_pack_folder(&pack_root)?;
     Ok(IndexEditorResult { report, state })
 }
 
 pub fn validate_pack(state: EditorPackState) -> Result<ValidationReport, EditorCommandError> {
-    validation_report(&PathBuf::from(&state.pack_root), &state.pack)
+    let pack_root = canonicalize_existing_path(Path::new(&state.pack_root))?;
+    validation_report(&pack_root, &state.pack)
 }
 
 pub fn save_pack(state: EditorPackState) -> Result<SaveEditorResult, EditorCommandError> {
-    let pack_root = PathBuf::from(&state.pack_root);
+    let pack_root = canonicalize_existing_path(Path::new(&state.pack_root))?;
     let validation = validation_report(&pack_root, &state.pack)?;
     if validation
         .diagnostics
@@ -77,7 +80,8 @@ pub fn export_bundle(
     state: EditorPackState,
     output_path: impl AsRef<Path>,
 ) -> Result<ExportEditorResult, EditorCommandError> {
-    let validation = validation_report(&PathBuf::from(&state.pack_root), &state.pack)?;
+    let pack_root = canonicalize_existing_path(Path::new(&state.pack_root))?;
+    let validation = validation_report(&pack_root, &state.pack)?;
     if validation
         .diagnostics
         .iter()
@@ -103,6 +107,8 @@ fn state_from_pack(
     pack: PackRecord,
     dirty: bool,
 ) -> Result<EditorPackState, EditorCommandError> {
+    let pack_root = canonicalize_existing_path(&pack_root)?;
+    let sidecar_path = canonicalize_existing_path(&sidecar_path)?;
     let validation = validation_report(&pack_root, &pack)?;
     let assets = asset_statuses(&pack_root, &pack)?;
     let selected_asset_id = pack.assets.first().map(|asset| asset.asset_id.clone());
@@ -117,6 +123,10 @@ fn state_from_pack(
         dirty,
         validation,
     })
+}
+
+fn canonicalize_existing_path(path: impl AsRef<Path>) -> Result<PathBuf, EditorCommandError> {
+    Ok(std::fs::canonicalize(path)?)
 }
 
 fn validation_report(

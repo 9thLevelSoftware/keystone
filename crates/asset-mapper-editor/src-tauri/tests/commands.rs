@@ -47,6 +47,26 @@ fn init_open_validate_and_save_pack_state() {
 }
 
 #[test]
+fn relative_pack_input_returns_absolute_editor_paths() {
+    let cwd = std::env::current_dir().expect("current directory is available");
+    let temp = tempfile::tempdir_in(&cwd).expect("temp dir is created under cwd");
+    std::fs::create_dir_all(temp.path().join("models")).expect("models dir is created");
+    write_asset(&temp.path().join("models"), "wall.glb", b"wall");
+    let relative_pack_root = temp
+        .path()
+        .strip_prefix(&cwd)
+        .expect("temp dir is relative to cwd");
+    let canonical_pack_root = std::fs::canonicalize(temp.path()).expect("pack root canonicalizes");
+
+    let state =
+        init_pack_folder(relative_pack_root, "Dungeon Kit".to_owned()).expect("pack initializes");
+    assert_absolute_pack_paths(&state, &canonical_pack_root);
+
+    let opened = open_pack_folder(relative_pack_root).expect("pack opens");
+    assert_absolute_pack_paths(&opened, &canonical_pack_root);
+}
+
+#[test]
 fn export_bundle_is_blocked_by_validation_errors() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
@@ -69,6 +89,22 @@ fn export_bundle_is_blocked_by_validation_errors() {
     let output = temp.path().join("bundle.json");
     let error = export_bundle(state, output).expect_err("export rejects unknown connector class");
     assert_eq!(error.code, "validation_failed");
+}
+
+fn assert_absolute_pack_paths(state: &EditorPackState, canonical_pack_root: &std::path::Path) {
+    let pack_root = std::path::PathBuf::from(&state.pack_root);
+    assert!(pack_root.is_absolute());
+    assert_eq!(pack_root, canonical_pack_root);
+
+    assert_eq!(state.assets.len(), 1);
+    assert_eq!(state.assets[0].source_path, "models/wall.glb");
+    let absolute_path = std::path::PathBuf::from(&state.assets[0].absolute_path);
+    assert!(absolute_path.is_absolute());
+    assert_eq!(
+        absolute_path,
+        canonical_pack_root.join("models").join("wall.glb")
+    );
+    assert!(absolute_path.starts_with(canonical_pack_root));
 }
 
 #[test]
@@ -182,4 +218,25 @@ fn index_pack_folder_returns_state_with_changed_and_new_asset_statuses() {
     assert!(floor.exists);
     assert_eq!(floor.hash_matches, Some(true));
     assert!(floor.preview_supported);
+}
+
+#[test]
+fn index_pack_folder_rejects_invalid_existing_source_paths_before_writing() {
+    let temp = tempfile::tempdir().expect("temp dir is created");
+    write_asset(temp.path(), "wall.glb", b"wall");
+    let mut state =
+        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+    state.pack.assets[0].source_path = "../outside.glb".to_owned();
+    asset_mapper_io::write_pack_sidecar(temp.path(), &state.pack).expect("sidecar is written");
+    let original_sidecar =
+        std::fs::read_to_string(asset_mapper_io::canonical_sidecar_path(temp.path()))
+            .expect("sidecar is readable");
+    write_asset(temp.path(), "floor.glb", b"floor");
+
+    let error = index_pack_folder(temp.path()).expect_err("index rejects invalid source path");
+
+    assert_eq!(error_code(error), "invalid_source_path");
+    let sidecar = std::fs::read_to_string(asset_mapper_io::canonical_sidecar_path(temp.path()))
+        .expect("sidecar is readable");
+    assert_eq!(sidecar, original_sidecar);
 }
