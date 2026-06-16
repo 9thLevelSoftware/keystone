@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import AssetList from "./components/AssetList";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import Inspector from "./components/Inspector";
+import Viewport from "./components/Viewport";
 import { selectAsset, selectConnector } from "./editorState";
 import {
   chooseBundleOutputPath,
@@ -112,11 +113,7 @@ export default function App() {
           }
         }}
       />
-      <section className="viewport-panel" aria-label="Asset preview">
-        <div className="viewport-placeholder">
-          {selectedAsset ? selectedAsset.display_name : "Select an asset to preview."}
-        </div>
-      </section>
+      <Viewport state={state} selectedAsset={selectedAsset} onStateChange={setState} />
       <Inspector
         state={state}
         selectedAsset={selectedAsset}
