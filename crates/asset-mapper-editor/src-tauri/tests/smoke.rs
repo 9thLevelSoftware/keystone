@@ -2,9 +2,7 @@ use asset_mapper_core::{
     AllowedRotation, Axis3, CompatibilityRule, ConnectorClass, ConnectorFrame, ConnectorRecord,
     ConnectorRole, Severity,
 };
-use asset_mapper_editor::commands::{
-    export_bundle, init_pack_folder, save_pack, validate_pack,
-};
+use asset_mapper_editor::commands::{export_bundle, init_pack_folder, save_pack, validate_pack};
 
 fn repo_fixture(path: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -15,7 +13,10 @@ fn repo_fixture(path: &str) -> std::path::PathBuf {
 #[test]
 fn phase2_fixture_can_be_authored_saved_validated_and_exported() {
     let source = repo_fixture("fixtures/phase2/modular_pack/wall.glb");
-    assert!(source.is_file(), "run npm run fixture:phase2 before this test");
+    assert!(
+        source.is_file(),
+        "run npm run fixture:phase2 before this test"
+    );
 
     let temp = tempfile::tempdir().expect("temp dir is created");
     std::fs::copy(&source, temp.path().join("wall.glb")).expect("fixture copies");
