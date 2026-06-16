@@ -23,13 +23,13 @@ pub fn validate_pack_sources(
         metadata_sources.insert(asset.source_path.as_str());
         match indexed_by_source.get(asset.source_path.as_str()) {
             Some(indexed_asset) if indexed_asset.content_hash == asset.content_hash => {}
-            Some(_) => {
+            Some(indexed_asset) => {
                 diagnostics.push(
                     Diagnostic::warning(
                         "source_hash_drift",
                         format!(
-                            "source file `{}` content hash differs from metadata",
-                            asset.source_path
+                            "source file `{}` content hash differs from metadata: expected `{}`, current `{}`",
+                            asset.source_path, asset.content_hash, indexed_asset.content_hash
                         ),
                     )
                     .with_asset(asset.asset_id.clone()),

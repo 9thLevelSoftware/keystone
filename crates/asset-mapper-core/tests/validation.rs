@@ -43,6 +43,23 @@ fn connector_class_without_rule_is_a_warning() {
 }
 
 #[test]
+fn non_finite_rotation_steps_are_errors() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.compatibility_rules[0].rotation = asset_mapper_core::AllowedRotation::StepsDeg {
+        values: vec![0.0, f32::NAN],
+    };
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_rotation_steps")
+        .expect("non-finite rotation steps diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert!(diagnostic.asset_id.is_none());
+    assert!(diagnostic.connector_id.is_none());
+}
+
+#[test]
 fn duplicate_asset_ids_are_errors() {
     let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
     pack.assets[1].asset_id = pack.assets[0].asset_id.clone();
@@ -152,6 +169,67 @@ fn non_finite_3d_connector_quaternion_is_an_error() {
     assert_eq!(diagnostic.severity, Severity::Error);
     assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
     assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
+}
+
+#[test]
+fn non_finite_3d_connector_position_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    if let asset_mapper_core::ConnectorFrame::Frame3d { position, .. } =
+        &mut pack.assets[0].connectors[0].frame
+    {
+        position[2] = f32::INFINITY;
+    }
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_connector_position")
+        .expect("non-finite connector position diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
+}
+
+#[test]
+fn non_finite_2d_connector_position_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0].connectors[0].frame = asset_mapper_core::ConnectorFrame::Frame2d {
+        position: [f32::NEG_INFINITY, 0.0],
+        normal: [1.0, 0.0],
+        grid_cell: None,
+    };
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_connector_position")
+        .expect("non-finite connector position diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
+}
+
+#[test]
+fn non_finite_2d_connector_normal_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0].connectors[0].frame = asset_mapper_core::ConnectorFrame::Frame2d {
+        position: [0.0, 0.0],
+        normal: [f32::NAN, 0.0],
+        grid_cell: None,
+    };
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "non_finite_connector_2d_normal")
+        .expect("non-finite connector 2D normal diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(diagnostic.connector_id.as_deref(), Some("front"));
+    assert!(
+        find_code(&report.diagnostics, "connector_2d_normal_degenerate").is_none(),
+        "non-finite 2D normal should not also emit a degenerate-normal diagnostic"
+    );
 }
 
 #[test]

@@ -23,14 +23,17 @@ fn source_validation_reports_missing_drifted_and_untracked_files() {
 
     let report = validate_pack_sources(temp.path(), &loaded.pack).expect("source validation runs");
 
-    assert!(
-        report
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == "source_hash_drift"
+    let drift = report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.code == "source_hash_drift"
                 && diagnostic.severity == Severity::Warning
-                && diagnostic.asset_id.as_deref() == Some("wall"))
-    );
+                && diagnostic.asset_id.as_deref() == Some("wall")
+        })
+        .expect("source hash drift diagnostic is present");
+    assert!(drift.message.contains("expected `sha256:"));
+    assert!(drift.message.contains("current `sha256:"));
     assert!(
         report
             .diagnostics

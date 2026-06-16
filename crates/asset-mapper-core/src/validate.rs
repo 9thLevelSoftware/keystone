@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
 use crate::diagnostics::{Diagnostic, ValidationReport};
-use crate::schema::{CURRENT_SCHEMA_VERSION, ConnectorFrame, PackRecord, ReviewFlag};
+use crate::schema::{
+    AllowedRotation, CURRENT_SCHEMA_VERSION, ConnectorFrame, PackRecord, ReviewFlag,
+};
 
 const QUAT_NORMALIZED_EPSILON: f32 = 0.001;
 const VECTOR_LENGTH_EPSILON: f32 = 0.0001;
@@ -51,6 +53,18 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
         }
         classes_with_rules.insert(rule.a_class.as_str());
         classes_with_rules.insert(rule.b_class.as_str());
+
+        if let AllowedRotation::StepsDeg { values } = &rule.rotation {
+            if !values.iter().all(|value| value.is_finite()) {
+                diagnostics.push(Diagnostic::error(
+                    "non_finite_rotation_steps",
+                    format!(
+                        "compatibility rule between `{}` and `{}` has non-finite rotation steps",
+                        rule.a_class, rule.b_class
+                    ),
+                ));
+            }
+        }
     }
 
     for class in &pack.connector_classes {
@@ -195,9 +209,20 @@ fn validate_connector_frame(
 ) {
     match frame {
         ConnectorFrame::Frame3d {
+            position,
             orientation_quat_xyzw,
-            ..
         } => {
+            if !validate_finite_vec3(position) {
+                diagnostics.push(
+                    Diagnostic::error(
+                        "non_finite_connector_position",
+                        "3D connector position components must be finite",
+                    )
+                    .with_asset(asset_id.to_owned())
+                    .with_connector(connector_id.to_owned()),
+                );
+            }
+
             if !orientation_quat_xyzw
                 .iter()
                 .all(|component| component.is_finite())
@@ -230,7 +255,32 @@ fn validate_connector_frame(
                 );
             }
         }
-        ConnectorFrame::Frame2d { normal, .. } => {
+        ConnectorFrame::Frame2d {
+            position, normal, ..
+        } => {
+            if !validate_finite_vec2(position) {
+                diagnostics.push(
+                    Diagnostic::error(
+                        "non_finite_connector_position",
+                        "2D connector position components must be finite",
+                    )
+                    .with_asset(asset_id.to_owned())
+                    .with_connector(connector_id.to_owned()),
+                );
+            }
+
+            if !validate_finite_vec2(normal) {
+                diagnostics.push(
+                    Diagnostic::error(
+                        "non_finite_connector_2d_normal",
+                        "2D connector normal components must be finite",
+                    )
+                    .with_asset(asset_id.to_owned())
+                    .with_connector(connector_id.to_owned()),
+                );
+                return;
+            }
+
             let length_squared = normal[0] * normal[0] + normal[1] * normal[1];
             if length_squared < VECTOR_LENGTH_EPSILON {
                 diagnostics.push(
@@ -251,6 +301,10 @@ fn bounds_are_ordered(min: [f32; 3], max: [f32; 3]) -> bool {
 }
 
 fn validate_finite_vec3(vector: &[f32; 3]) -> bool {
+    vector.iter().all(|component| component.is_finite())
+}
+
+fn validate_finite_vec2(vector: &[f32; 2]) -> bool {
     vector.iter().all(|component| component.is_finite())
 }
 

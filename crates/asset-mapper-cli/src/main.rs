@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use asset_mapper_core::{AssemblyPlan, LlmBundle, resolve_plan, validate_pack};
 use asset_mapper_io::{
-    index_pack_folder, init_pack_folder, read_pack_from_input, validate_pack_sources,
+    PackInputKind, index_pack_folder, init_pack_folder, read_pack_from_input, validate_pack_sources,
 };
 use clap::{Parser, Subcommand};
 
@@ -65,9 +65,11 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
         Commands::Validate { pack } => {
             let loaded = read_pack_from_input(pack)?;
             let mut report = validate_pack(&loaded.pack);
-            if let Some(pack_root) = loaded.resolved.pack_root.as_deref() {
-                let source_report = validate_pack_sources(pack_root, &loaded.pack)?;
-                report.extend(source_report.diagnostics);
+            if loaded.resolved.kind == PackInputKind::PackFolder {
+                if let Some(pack_root) = loaded.resolved.pack_root.as_deref() {
+                    let source_report = validate_pack_sources(pack_root, &loaded.pack)?;
+                    report.extend(source_report.diagnostics);
+                }
             }
             println!("{}", serde_json::to_string_pretty(&report)?);
             if report.is_valid() {

@@ -192,6 +192,19 @@ fn validate_bundle_and_resolve_accept_pack_folder() {
         .success()
         .stdout(predicate::str::contains("source_file_missing"));
 
+    let mut validate_sidecar = Command::cargo_bin("asset-mapper").expect("binary exists");
+    validate_sidecar
+        .args([
+            "validate",
+            metadata_dir
+                .join("pack.assetmap.json")
+                .to_str()
+                .expect("sidecar path is utf-8"),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source_file_missing").not());
+
     let mut bundle = Command::cargo_bin("asset-mapper").expect("binary exists");
     bundle
         .args(["bundle", temp.path().to_str().expect("temp path is utf-8")])
