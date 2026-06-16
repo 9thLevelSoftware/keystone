@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use asset_mapper_core::{
     LlmBundle, PackRecord, Severity, ValidationReport, validate_pack as validate_core_pack,
@@ -123,6 +123,7 @@ fn validation_report(
     pack_root: &Path,
     pack: &PackRecord,
 ) -> Result<ValidationReport, EditorCommandError> {
+    validate_editor_source_paths(pack_root, pack)?;
     let mut report = validate_core_pack(pack);
     let source_report = validate_pack_sources(pack_root, pack)?;
     report.extend(source_report.diagnostics);
@@ -133,6 +134,7 @@ fn asset_statuses(
     pack_root: &Path,
     pack: &PackRecord,
 ) -> Result<Vec<EditorAssetStatus>, EditorCommandError> {
+    validate_editor_source_paths(pack_root, pack)?;
     let indexed = scan_assets(pack_root)?;
     let indexed_by_source = indexed
         .iter()
@@ -156,6 +158,79 @@ fn asset_statuses(
             }
         })
         .collect())
+}
+
+fn validate_editor_source_paths(
+    pack_root: &Path,
+    pack: &PackRecord,
+) -> Result<(), EditorCommandError> {
+    for asset in &pack.assets {
+        validate_editor_source_path(pack_root, &asset.asset_id, &asset.source_path)?;
+    }
+    Ok(())
+}
+
+fn validate_editor_source_path(
+    pack_root: &Path,
+    asset_id: &str,
+    source_path: &str,
+) -> Result<(), EditorCommandError> {
+    if source_path.trim().is_empty() {
+        return Err(invalid_source_path(asset_id, source_path));
+    }
+
+    if source_path.contains('\\') || has_windows_drive_prefix(source_path) {
+        return Err(invalid_source_path(asset_id, source_path));
+    }
+
+    let path = Path::new(source_path);
+    if path.is_absolute() {
+        return Err(invalid_source_path(asset_id, source_path));
+    }
+
+    for segment in source_path.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return Err(invalid_source_path(asset_id, source_path));
+        }
+    }
+
+    let mut relative_path = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(component) => relative_path.push(component),
+            Component::Prefix(_)
+            | Component::RootDir
+            | Component::CurDir
+            | Component::ParentDir => {
+                return Err(invalid_source_path(asset_id, source_path));
+            }
+        }
+    }
+
+    let absolute_path = pack_root.join(relative_path);
+    if absolute_path.exists() {
+        let canonical_root = std::fs::canonicalize(pack_root)?;
+        let canonical_asset = std::fs::canonicalize(&absolute_path)?;
+        if !canonical_asset.starts_with(canonical_root) {
+            return Err(invalid_source_path(asset_id, source_path));
+        }
+    }
+
+    Ok(())
+}
+
+fn invalid_source_path(asset_id: &str, source_path: &str) -> EditorCommandError {
+    EditorCommandError::new(
+        "invalid_source_path",
+        format!(
+            "asset `{asset_id}` source_path `{source_path}` must be a non-empty relative path inside the pack root"
+        ),
+    )
+}
+
+fn has_windows_drive_prefix(source_path: &str) -> bool {
+    let bytes = source_path.as_bytes();
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
 }
 
 fn preview_supported(source_path: &str) -> bool {
