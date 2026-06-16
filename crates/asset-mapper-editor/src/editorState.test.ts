@@ -7,6 +7,7 @@ import {
   groupDiagnostics,
   removeConnector,
   selectAsset,
+  updateConnector,
   updateConnectorFrame,
 } from "./editorState";
 import type { EditorPackState } from "./types";
@@ -102,7 +103,6 @@ describe("editorState", () => {
     });
 
     const moved = updateConnectorFrame(withConnector, "wall", "connector_1", {
-      kind: "frame3d",
       position: [1, 2, 3],
       orientation_quat_xyzw: [0, 0, 0, 1],
     });
@@ -116,6 +116,31 @@ describe("editorState", () => {
 
     expect(removed.pack.assets[0].connectors).toHaveLength(0);
     expect(removed.selectedConnectorId).toBeNull();
+  });
+
+  it("updates connector metadata, frame, and selection when the connector id changes", () => {
+    const withConnector = addConnector(baseState(), "wall");
+
+    const updated = updateConnector(withConnector, "wall", "connector_1", {
+      connector_id: "door_connector",
+      display_name: "Door Connector",
+      frame: {
+        kind: "frame3d",
+        position: [4, 5, 6],
+        orientation_quat_xyzw: [0, 0, 0, 1],
+      },
+    });
+
+    expect(updated.dirty).toBe(true);
+    expect(updated.selectedConnectorId).toBe("door_connector");
+    expect(updated.pack.assets[0].connectors[0]).toMatchObject({
+      connector_id: "door_connector",
+      display_name: "Door Connector",
+      frame: {
+        kind: "frame3d",
+        position: [4, 5, 6],
+      },
+    });
   });
 
   it("appends connector classes and locked compatibility rules", () => {

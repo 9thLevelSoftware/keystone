@@ -9,9 +9,7 @@ import type {
 } from "./types";
 
 type Frame3d = Extract<ConnectorFrame, { kind: "frame3d" }>;
-type ConnectorPatch = Partial<
-  Omit<ConnectorRecord, "connector_id" | "frame">
->;
+type Frame3dPatch = Omit<Frame3d, "kind">;
 
 export type GroupedDiagnostics = Record<string, Diagnostic[]>;
 
@@ -96,11 +94,14 @@ export function updateConnectorFrame(
   state: EditorPackState,
   assetId: string,
   connectorId: string,
-  frame: Frame3d,
+  frame: Frame3dPatch,
 ): EditorPackState {
   return updateConnectorRecord(state, assetId, connectorId, (connector) => ({
     ...connector,
-    frame,
+    frame: {
+      ...frame,
+      kind: "frame3d",
+    },
   }));
 }
 
@@ -108,12 +109,30 @@ export function updateConnector(
   state: EditorPackState,
   assetId: string,
   connectorId: string,
-  patch: ConnectorPatch,
+  patch: Partial<ConnectorRecord>,
 ): EditorPackState {
-  return updateConnectorRecord(state, assetId, connectorId, (connector) => ({
-    ...connector,
-    ...patch,
-  }));
+  const nextState = updateConnectorRecord(
+    state,
+    assetId,
+    connectorId,
+    (connector) => ({
+      ...connector,
+      ...patch,
+    }),
+  );
+
+  if (
+    nextState !== state &&
+    state.selectedConnectorId === connectorId &&
+    patch.connector_id
+  ) {
+    return {
+      ...nextState,
+      selectedConnectorId: patch.connector_id,
+    };
+  }
+
+  return nextState;
 }
 
 export function removeConnector(
