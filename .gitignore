@@ -3,3 +3,7 @@
 .idea/
 .vscode/
 .worktrees/
+node_modules/
+dist/
+crates/asset-mapper-editor/src-tauri/target/
+crates/asset-mapper-editor/src-tauri/gen/schemas/
