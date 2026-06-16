@@ -1,6 +1,7 @@
 import type {
   AssetRecord,
   CompatibilityRule,
+  ConnectorClass,
   ConnectorFrame,
   ConnectorRecord,
   Diagnostic,
@@ -197,6 +198,42 @@ export function addConnectorClass(
   };
 }
 
+export function updateConnectorClass(
+  state: EditorPackState,
+  index: number,
+  patch: ConnectorClass,
+): EditorPackState {
+  const previous = state.pack.connector_classes[index];
+  if (!previous) {
+    return state;
+  }
+
+  return {
+    ...state,
+    dirty: true,
+    pack: {
+      ...state.pack,
+      connector_classes: state.pack.connector_classes.map(
+        (connectorClass, currentIndex) =>
+          currentIndex === index ? patch : connectorClass,
+      ),
+      compatibility_rules: state.pack.compatibility_rules.map((rule) => ({
+        ...rule,
+        a_class: rule.a_class === previous.class ? patch.class : rule.a_class,
+        b_class: rule.b_class === previous.class ? patch.class : rule.b_class,
+      })),
+      assets: state.pack.assets.map((asset) => ({
+        ...asset,
+        connectors: asset.connectors.map((connector) =>
+          connector.class === previous.class
+            ? { ...connector, class: patch.class }
+            : connector,
+        ),
+      })),
+    },
+  };
+}
+
 export function addCompatibilityRule(
   state: EditorPackState,
   aClass: string,
@@ -214,6 +251,27 @@ export function addCompatibilityRule(
     pack: {
       ...state.pack,
       compatibility_rules: [...state.pack.compatibility_rules, rule],
+    },
+  };
+}
+
+export function updateCompatibilityRule(
+  state: EditorPackState,
+  index: number,
+  patch: CompatibilityRule,
+): EditorPackState {
+  if (!state.pack.compatibility_rules[index]) {
+    return state;
+  }
+
+  return {
+    ...state,
+    dirty: true,
+    pack: {
+      ...state.pack,
+      compatibility_rules: state.pack.compatibility_rules.map((rule, currentIndex) =>
+        currentIndex === index ? patch : rule,
+      ),
     },
   };
 }

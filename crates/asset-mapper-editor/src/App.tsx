@@ -118,6 +118,7 @@ export default function App() {
         state={state}
         selectedAsset={selectedAsset}
         selectedConnector={selectedConnector}
+        onStateChange={setState}
         onSelectConnector={(assetId, connectorId) => {
           if (state) {
             setState(selectConnector(state, assetId, connectorId));

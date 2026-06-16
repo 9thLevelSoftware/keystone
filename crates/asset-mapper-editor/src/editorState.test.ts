@@ -8,7 +8,9 @@ import {
   removeConnector,
   selectAsset,
   updateConnector,
+  updateConnectorClass,
   updateConnectorFrame,
+  updateCompatibilityRule,
 } from "./editorState";
 import type { EditorPackState } from "./types";
 
@@ -213,6 +215,46 @@ describe("editorState", () => {
         rotation: { kind: "locked" },
       },
     ]);
+  });
+
+  it("updates connector classes and remaps connector/rule references", () => {
+    const withClass = addConnectorClass(baseState(), "doorway", "Doorway");
+    const withConnector = updateConnector(addConnector(withClass, "wall"), "wall", "connector_1", {
+      class: "doorway",
+    });
+    const withRule = addCompatibilityRule(withConnector, "doorway", "doorway");
+
+    const renamed = updateConnectorClass(withRule, 0, {
+      class: "arch",
+      display_name: "Arch",
+    });
+
+    expect(renamed.dirty).toBe(true);
+    expect(renamed.pack.connector_classes[0]).toEqual({
+      class: "arch",
+      display_name: "Arch",
+    });
+    expect(renamed.pack.assets[0].connectors[0].class).toBe("arch");
+    expect(renamed.pack.compatibility_rules[0]).toMatchObject({
+      a_class: "arch",
+      b_class: "arch",
+    });
+  });
+
+  it("updates compatibility rules by index", () => {
+    const withClass = addConnectorClass(baseState(), "doorway", "Doorway");
+    const withRule = addCompatibilityRule(withClass, "doorway", "doorway");
+
+    const updatedRule = updateCompatibilityRule(withRule, 0, {
+      a_class: "doorway",
+      b_class: "doorway",
+      rotation: { kind: "free" },
+    });
+
+    expect(updatedRule.dirty).toBe(true);
+    expect(updatedRule.pack.compatibility_rules[0].rotation).toEqual({
+      kind: "free",
+    });
   });
 
   it("groups diagnostics by connector, asset, and pack", () => {
