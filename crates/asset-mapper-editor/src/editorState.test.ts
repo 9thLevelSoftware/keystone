@@ -143,6 +143,58 @@ describe("editorState", () => {
     });
   });
 
+  it("updates selected connector id when the selected connector is renamed to an empty id", () => {
+    const withConnector = addConnector(baseState(), "wall");
+
+    const updated = updateConnector(withConnector, "wall", "connector_1", {
+      connector_id: "",
+    });
+
+    expect(updated.selectedAssetId).toBe("wall");
+    expect(updated.selectedConnectorId).toBe("");
+    expect(updated.pack.assets[0].connectors[0].connector_id).toBe("");
+  });
+
+  it("does not change selection when renaming the same connector id on another asset", () => {
+    const withConnector = addConnector(baseState(), "wall");
+    const wall = withConnector.pack.assets[0];
+    const door = {
+      ...wall,
+      asset_id: "door",
+      source_path: "door.glb",
+      content_hash: "sha256:def",
+      display_name: "Door",
+      connectors: [
+        {
+          ...wall.connectors[0],
+          display_name: "Door Connector",
+        },
+      ],
+    };
+    const withSameConnectorIdOnAnotherAsset = {
+      ...withConnector,
+      pack: {
+        ...withConnector.pack,
+        assets: [wall, door],
+      },
+    };
+
+    const updated = updateConnector(
+      withSameConnectorIdOnAnotherAsset,
+      "door",
+      "connector_1",
+      {
+        connector_id: "door_connector",
+      },
+    );
+
+    expect(updated.selectedAssetId).toBe("wall");
+    expect(updated.selectedConnectorId).toBe("connector_1");
+    expect(updated.pack.assets[1].connectors[0].connector_id).toBe(
+      "door_connector",
+    );
+  });
+
   it("appends connector classes and locked compatibility rules", () => {
     const withClass = addConnectorClass(baseState(), "doorway", "Doorway");
 

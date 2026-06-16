@@ -123,8 +123,9 @@ export function updateConnector(
 
   if (
     nextState !== state &&
+    state.selectedAssetId === assetId &&
     state.selectedConnectorId === connectorId &&
-    patch.connector_id
+    hasConnectorIdPatch(patch)
   ) {
     return {
       ...nextState,
@@ -133,6 +134,12 @@ export function updateConnector(
   }
 
   return nextState;
+}
+
+function hasConnectorIdPatch(
+  patch: Partial<ConnectorRecord>,
+): patch is Partial<ConnectorRecord> & Pick<ConnectorRecord, "connector_id"> {
+  return Object.prototype.hasOwnProperty.call(patch, "connector_id");
 }
 
 export function removeConnector(
