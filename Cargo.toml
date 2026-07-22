@@ -3,6 +3,7 @@ members = [
     "crates/asset-mapper-core",
     "crates/asset-mapper-io",
     "crates/asset-mapper-cli",
+    "crates/asset-mapper-editor/src-tauri",
 ]
 resolver = "2"
 
