@@ -2,16 +2,23 @@
 
 All notable changes to Keystone (Asset Mapper) are documented in this file.
 
-## [Unreleased] — honest-limits completion (→ v0.2.0)
+## [0.2.0] — 2026-07-26
 
-### Product vision (load → auto-map → tweak → see pack connect)
+Honest-limits completion: load → auto-map → tweak → see the pack connect.
+
+### Product vision
 
 - **Mesh-aware sockets:** Analyze loads glTF/OBJ mesh samples and proposes mating frames on surface centroids / portal openings; AABB face centers remain fallback (review flag `auto_from_bounds_fallback`)
 - **Richer auto rules:** Modular ontology (doorway↔wall_edge, corridor_end, floor_edge, archway, …) plus same-class self-rules; per-socket class heuristics; scale-based snap tolerances
 - **Whole-pack assembly:** `propose_assembly_plan` greedy multi-piece synthesizer; CLI `propose-assembly`; editor **Pack assembly → Auto layout pack** (still supports two-piece mate)
 - Analyze report fields: `mesh_socket_assets`, `bounds_fallback_assets`
 - CLI: `analyze --aabb-only`; `propose-assembly --max-pieces --root -o`
+- Working 3D previews (blob load) and two-piece mate from v0.1.1 lineage
 - Docs: getting-started default path is Analyze + pack assembly; edge cases only (not open product gaps)
+
+## [0.1.1] — 2026-07-26
+
+CLI zip + editor installers; release workflow fixes after v0.1.0.
 
 ## [0.1.0] — 2026-07-26
 

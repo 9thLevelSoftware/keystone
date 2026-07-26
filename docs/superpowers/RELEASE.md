@@ -8,8 +8,8 @@
 4. Tag and push:
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 5. GitHub Actions workflow **Release** (`.github/workflows/release.yml`) builds:
@@ -19,7 +19,7 @@ git push origin v0.1.0
 
 ### Signing
 
-v0.1.x ships **unsigned**. Windows SmartScreen may warn. Code signing is a later trust milestone (P2).
+v0.2.x ships **unsigned**. Windows SmartScreen may warn. Code signing is a later trust milestone (P2).
 
 ## Manual local build (fallback)
 

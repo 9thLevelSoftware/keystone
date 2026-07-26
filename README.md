@@ -9,7 +9,7 @@ Keystone is the canonical metadata layer for jigsaw-style asset packs: it captur
 ## Status
 
 **Product path:** load a modular kit → **Analyze** (mesh sockets + rules) → tweak → **Pack assembly** preview → validate/save.  
-Phases 0–3 + production gates ship on Releases; honest-limits completion (mesh sockets, rich rules, multi-piece assembly) is the current product track (→ v0.2.0).
+**Current release:** v0.2.0 (honest-limits completion on top of Phases 0–3 + production gates).
 
 **User docs:** [Getting started](docs/user-guide/getting-started.md) · [Desktop QA](docs/superpowers/QA-DESKTOP.md) · [Release](docs/superpowers/RELEASE.md) · [Status matrix](docs/superpowers/STATUS.md)
 
