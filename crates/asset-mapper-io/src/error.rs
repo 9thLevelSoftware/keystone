@@ -70,4 +70,7 @@ pub enum IoError {
 
     #[error("schema migration failed: {0}")]
     Migration(String),
+
+    #[error("invalid init options: {message}")]
+    InvalidInitOptions { message: String },
 }

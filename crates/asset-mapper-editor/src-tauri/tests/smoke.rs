@@ -3,6 +3,7 @@ use asset_mapper_core::{
     ConnectorRole, Severity,
 };
 use asset_mapper_editor::commands::{export_bundle, init_pack_folder, save_pack, validate_pack};
+use asset_mapper_io::InitPackOptions;
 
 fn repo_fixture(path: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -22,7 +23,7 @@ fn phase2_fixture_can_be_authored_saved_validated_and_exported() {
     std::fs::copy(&source, temp.path().join("wall.glb")).expect("fixture copies");
 
     let mut state =
-        init_pack_folder(temp.path(), "Phase 2 Smoke".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Phase 2 Smoke")).expect("pack initializes");
     state.pack.license_summary = "MIT OR Apache-2.0".to_owned();
     state.pack.connector_classes.push(ConnectorClass {
         class: "doorway".to_owned(),

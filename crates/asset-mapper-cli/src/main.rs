@@ -7,8 +7,8 @@ use asset_mapper_core::{
     gltf_keystone_extras, resolve_plan, validate_pack,
 };
 use asset_mapper_io::{
-    PackInputKind, accept_hash_drift, index_pack_folder, init_pack_folder, measure_pack_bounds,
-    migrate_pack_input, read_pack_from_input, validate_pack_sources,
+    InitPackOptions, PackInputKind, accept_hash_drift, index_pack_folder, init_pack_folder,
+    measure_pack_bounds, migrate_pack_input, read_pack_from_input, validate_pack_sources,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -34,6 +34,15 @@ enum Commands {
         folder: PathBuf,
         #[arg(long)]
         name: String,
+        /// SPDX or human license summary (required; must not be UNSPECIFIED).
+        #[arg(long)]
+        license: String,
+        /// Pack author organization or person (at least one of --author / --source).
+        #[arg(long)]
+        author: Option<String>,
+        /// Pack source URL or origin label (at least one of --author / --source).
+        #[arg(long)]
+        source: Option<String>,
     },
     Index {
         folder: PathBuf,
@@ -96,8 +105,22 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { folder, name } => {
-            let report = init_pack_folder(folder, name)?;
+        Commands::Init {
+            folder,
+            name,
+            license,
+            author,
+            source,
+        } => {
+            let report = init_pack_folder(
+                folder,
+                InitPackOptions {
+                    display_name: name,
+                    license_summary: license,
+                    author,
+                    source,
+                },
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(ExitCode::SUCCESS)
         }

@@ -8,7 +8,10 @@ Keystone is the canonical metadata layer for jigsaw-style asset packs: it captur
 
 ## Status
 
-**v0.1.0 production cut.** Phases 0–3 ship with production gates: license + provenance + controlled vocabulary (schema v2), full editor pack settings UI, WASM validate/resolve/bundle bindings, CI, and dual licensing. Living status: [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md).
+**v0.1.0 production cut on `main`.** Phases 0–3 + production metadata gates.  
+**User docs:** [Getting started](docs/user-guide/getting-started.md) · [Desktop QA](docs/superpowers/QA-DESKTOP.md) · [Release](docs/superpowers/RELEASE.md) · [Status matrix](docs/superpowers/STATUS.md)
+
+Install from [GitHub Releases](https://github.com/9thLevelSoftware/keystone/releases) when a version tag has been published (Windows CLI zip + editor installer).
 
 | Phase | Scope | Status |
 | --- | --- | --- |
@@ -64,10 +67,11 @@ Commands:
 ### `init` — create a new pack folder
 
 ```bash
-asset-mapper init --name "My Pack" ./my-pack
+asset-mapper init ./my-pack --name "My Pack" --license "MIT" --author "Your Studio"
 ```
 
-Writes a starter pack layout, including the sidecar metadata file, into the target folder. When glTF/image sources are readable, real AABB/pixel bounds are stored and `BoundsPlaceholder` is omitted.
+Writes a starter pack layout, including the sidecar metadata file, into the target folder.  
+**Production requires** `--license` (not `UNSPECIFIED`) and at least one of `--author` / `--source`. When glTF/image sources are readable, real AABB/pixel bounds are stored and `BoundsPlaceholder` is omitted.
 
 ### `index` — index an existing pack folder
 

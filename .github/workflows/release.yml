@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-cli:
+    name: Build CLI (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate phase2 GLB fixture
+        run: node crates/asset-mapper-editor/scripts/write-phase2-glb-fixture.mjs
+      - name: Build release CLI
+        run: cargo build --release -p asset-mapper-cli
+      - name: Stage CLI zip
+        shell: pwsh
+        run: |
+          $out = "dist-cli"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "target/release/asset-mapper.exe" "$out/asset-mapper.exe"
+          @"
+          Keystone / Asset Mapper CLI
+          ===========================
+
+          asset-mapper.exe — headless pack tooling
+
+          Quick start:
+            .\asset-mapper.exe --help
+            .\asset-mapper.exe init .\my-pack --name "My Pack" --license "MIT" --author "Your Org"
+            .\asset-mapper.exe validate .\my-pack
+
+          Docs: https://github.com/9thLevelSoftware/keystone
+          "@ | Set-Content -Encoding utf8 "$out/README.txt"
+          Compress-Archive -Path "$out/*" -DestinationPath "asset-mapper-windows-x64.zip" -Force
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-mapper-windows-x64
+          path: asset-mapper-windows-x64.zip
+
+  release-editor:
+    name: Build editor installer (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/asset-mapper-editor/package-lock.json
+      - name: Install frontend deps
+        working-directory: crates/asset-mapper-editor
+        run: npm ci
+      - name: Generate phase2 fixture
+        working-directory: crates/asset-mapper-editor
+        run: npm run fixture:phase2
+      - name: Build Tauri installer
+        working-directory: crates/asset-mapper-editor
+        run: npm run tauri:build
+      - name: Upload editor bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-mapper-editor-windows
+          path: |
+            crates/asset-mapper-editor/src-tauri/target/release/bundle/nsis/*.exe
+            crates/asset-mapper-editor/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: warn
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [release-cli, release-editor]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download CLI zip
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-mapper-windows-x64
+          path: release-assets
+      - name: Download editor bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-mapper-editor-windows
+          path: release-assets
+          continue-on-error: true
+      - name: Flatten assets
+        shell: bash
+        run: |
+          mkdir -p final
+          find release-assets -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.msi' \) -exec cp {} final/ \;
+          ls -la final
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: final/*
+          generate_release_notes: true
+          body: |
+            ## Keystone / Asset Mapper
+
+            **Windows-first production release** (unsigned — SmartScreen may warn).
+
+            ### Downloads
+            - **CLI:** `asset-mapper-windows-x64.zip` — extract and run `asset-mapper.exe`
+            - **Editor:** NSIS/MSI installer when present (Asset Mapper desktop app)
+
+            ### Quick start
+            See [Getting Started](https://github.com/9thLevelSoftware/keystone/blob/main/docs/user-guide/getting-started.md)
+            and [RELEASE.md](https://github.com/9thLevelSoftware/keystone/blob/main/docs/superpowers/RELEASE.md).
+
+            ```text
+            asset-mapper init .\my-pack --name "My Pack" --license "MIT" --author "Your Org"
+            asset-mapper measure-bounds .\my-pack
+            asset-mapper validate .\my-pack
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import AssetList from "./components/AssetList";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import Inspector from "./components/Inspector";
+import PackCompletenessBanner from "./components/PackCompletenessBanner";
 import Viewport from "./components/Viewport";
 import { selectAsset, selectConnector } from "./editorState";
 import {
@@ -107,8 +108,27 @@ export default function App() {
               setStatus("Init cancelled.");
               return;
             }
+            const license = window.prompt(
+              "License summary (required, e.g. MIT or CC0)",
+              "MIT",
+            );
+            if (!license) {
+              setStatus("Init cancelled — license is required.");
+              return;
+            }
+            const author = window.prompt("Author or organization (required)", "");
+            if (!author) {
+              setStatus("Init cancelled — author is required.");
+              return;
+            }
 
-            const initialized = await initPackFolder(folder, displayName);
+            const initialized = await initPackFolder(
+              folder,
+              displayName,
+              license,
+              author,
+              null,
+            );
             setState(initialized);
             setStatus(`Initialized ${initialized.pack.display_name}.`);
           })
@@ -164,7 +184,10 @@ export default function App() {
           }
         }}
       />
-      <Viewport state={state} selectedAsset={selectedAsset} onStateChange={setState} />
+      <div className="editor-main-column">
+        {state ? <PackCompletenessBanner state={state} /> : null}
+        <Viewport state={state} selectedAsset={selectedAsset} onStateChange={setState} />
+      </div>
       <Inspector
         state={state}
         selectedAsset={selectedAsset}
