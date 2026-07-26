@@ -33,6 +33,18 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+/** Signature of pack fields that affect vibe readiness (connectors/rules/assets). */
+export function packReadinessKey(pack: EditorPackState["pack"]): string {
+  return JSON.stringify({
+    assets: pack.assets.map((a) => ({
+      id: a.asset_id,
+      connectors: a.connectors,
+    })),
+    rules: pack.compatibility_rules,
+    classes: pack.connector_classes,
+  });
+}
+
 export default function App() {
   const [state, setState] = useState<EditorPackState | null>(null);
   const [status, setStatus] = useState("No pack open. Open or Init a pack, then Analyze.");
@@ -51,6 +63,14 @@ export default function App() {
       setVibeReport(null);
       return null;
     }
+  }
+
+  /** Apply pack edits; clear stale vibe banner when readiness-relevant fields change. */
+  function handlePackStateChange(next: EditorPackState) {
+    if (state && packReadinessKey(state.pack) !== packReadinessKey(next.pack)) {
+      setVibeReport(null);
+    }
+    setState(next);
   }
 
   const selectedAsset = useMemo(
@@ -171,6 +191,7 @@ export default function App() {
 
             const result = await indexPackFolder(state.packRoot);
             setState(result.state);
+            setVibeReport(null);
             setStatus(
               `Indexed pack: ${result.report.new_assets.length} new, ${result.report.drifted_assets.length} drifted.`,
             );
@@ -263,7 +284,7 @@ export default function App() {
         <Viewport
           state={state}
           selectedAsset={selectedAsset}
-          onStateChange={setState}
+          onStateChange={handlePackStateChange}
           assemblyScene={assemblyScene}
           assemblyPackRoot={state?.packRoot ?? null}
         />
@@ -273,7 +294,7 @@ export default function App() {
         state={state}
         selectedAsset={selectedAsset}
         selectedConnector={selectedConnector}
-        onStateChange={setState}
+        onStateChange={handlePackStateChange}
         onSelectConnector={(assetId, connectorId) => {
           if (state) {
             setAssemblyScene(null);
@@ -349,7 +370,7 @@ export default function App() {
         state={state}
         status={status}
         busy={busy}
-        onStateChange={setState}
+        onStateChange={handlePackStateChange}
         onValidate={() =>
           runAction("Validating pack", async () => {
             if (!state) {

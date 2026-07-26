@@ -203,7 +203,7 @@ pub fn propose_sockets_from_mesh(
 
         // Junk filter: almost empty face with no clear portal → skip.
         let portal = largest_interior_empty(&grid);
-        let portal_usable = portal.as_ref().is_some_and(|(_, _, cells)| {
+        let portal_usable = portal.as_ref().is_some_and(|(_, _, cells, _, _)| {
             let area_frac = *cells as f32 / (GRID * GRID) as f32;
             area_frac >= MIN_PORTAL_AREA_FRAC && *cells >= MIN_PORTAL_CELLS
         });
@@ -212,7 +212,7 @@ pub fn propose_sockets_from_mesh(
         }
 
         let (su, sv, source, score_boost, portal_size, portal_frac, strong_portal) =
-            if let Some((pu, pv, cells)) = portal {
+            if let Some((pu, pv, cells, w_cells, h_cells)) = portal {
                 let area_frac = cells as f32 / (GRID * GRID) as f32;
                 let portal_ok = occupancy >= MIN_OCCUPANCY_FOR_PORTAL
                     && area_frac >= MIN_PORTAL_AREA_FRAC
@@ -220,8 +220,11 @@ pub fn propose_sockets_from_mesh(
                 if portal_ok {
                     let u = face_u_min + (pu as f32 + 0.5) / GRID as f32 * span_u;
                     let v = face_v_min + (pv as f32 + 0.5) / GRID as f32 * span_v;
-                    let side = (cells as f32).sqrt() / GRID as f32;
-                    let p_span = [span_u * side.max(0.15), span_v * side.max(0.15)];
+                    // Preserve rectangle aspect: width/height in UV from empty rect cells.
+                    let p_span = [
+                        span_u * (w_cells as f32 / GRID as f32).max(0.05),
+                        span_v * (h_cells as f32 / GRID as f32).max(0.05),
+                    ];
                     let strong = occupancy >= 0.14
                         && area_frac >= STRONG_PORTAL_AREA_FRAC
                         && cells >= STRONG_PORTAL_CELLS;
@@ -464,8 +467,10 @@ fn infer_role_from_inset(
 }
 
 /// Find largest empty axis-aligned rectangle fully interior (not on border).
-/// Returns (center_u, center_v, cell_count).
-fn largest_interior_empty(grid: &[[bool; GRID]; GRID]) -> Option<(usize, usize, usize)> {
+/// Returns `(center_u, center_v, cell_count, width_cells, height_cells)`.
+fn largest_interior_empty(
+    grid: &[[bool; GRID]; GRID],
+) -> Option<(usize, usize, usize, usize, usize)> {
     let mut best_area = 0usize;
     let mut best = None;
 
@@ -498,7 +503,7 @@ fn largest_interior_empty(grid: &[[bool; GRID]; GRID]) -> Option<(usize, usize, 
                 // Prefer openings that are not just thin border gaps: min 2x2.
                 if interior && width >= 2 && sh >= 2 && area > best_area {
                     best_area = area;
-                    best = Some((c_col, c_row.min(GRID - 1), area));
+                    best = Some((c_col, c_row.min(GRID - 1), area, width, sh));
                 }
                 start = sc;
             }
@@ -606,6 +611,51 @@ mod tests {
             socks
                 .iter()
                 .all(|s| s.face_span[0] > 0.0 && s.face_span[1] > 0.0)
+        );
+    }
+
+    #[test]
+    fn portal_face_span_preserves_rectangle_aspect() {
+        // Tall door cut into a wide face: empty rect should stay taller than wide,
+        // not square-from-sqrt(area).
+        let min = [-2.0, 0.0, -0.1];
+        let max = [2.0, 3.0, 0.1];
+        let bounds = Bounds3 { min, max };
+        let mut positions = Vec::new();
+        for x in [min[0], max[0]] {
+            for y in [min[1], max[1]] {
+                for z in [min[2], max[2]] {
+                    positions.push([x, y, z]);
+                }
+            }
+        }
+        let z = max[2];
+        // Door hole: narrow in X, tall in Y (from floor to ~2.2).
+        for i in 0..40 {
+            for j in 0..50 {
+                let u = min[0] + (i as f32 / 39.0) * (max[0] - min[0]);
+                let v = min[1] + (j as f32 / 49.0) * (max[1] - min[1]);
+                let in_hole = u > -0.4 && u < 0.4 && v >= 0.0 && v < 2.2;
+                if !in_hole {
+                    positions.push([u, v, z]);
+                    positions.push([u, v, min[2]]);
+                }
+            }
+        }
+        let mesh = MeshGeometry {
+            positions,
+            indices: None,
+        };
+        let socks =
+            propose_sockets_from_mesh(&mesh, &bounds, &SocketProposeOptions::default(), true);
+        let portal = socks
+            .iter()
+            .find(|s| s.source == SocketSource::MeshPortal && s.is_strong_portal)
+            .expect("expected strong portal socket");
+        let [w, h] = portal.face_span;
+        assert!(
+            h > w * 1.15,
+            "tall door portal should report taller face_span, got [{w}, {h}]"
         );
     }
 }

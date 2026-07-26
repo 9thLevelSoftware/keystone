@@ -38,25 +38,27 @@ pub fn shape_family_from_bounds(bounds: &Bounds3) -> ShapeFamily {
         return ShapeFamily::FloorPlate;
     }
 
-    // Door frame: tall, one horizontal axis thin, other moderate-wide
-    // (classic modular door: thin in Z, wide in X, tall in Y)
     let thin = thickness / length;
-    if dy > length * 0.85 && thin < 0.28 && length > thickness * 2.5 {
-        // Prefer door over wall when the *other* horizontal span is large enough
-        // for a passage (not a thin wall strip).
-        if length > dy * 0.55 {
+    let thickness_over_height = thickness / dy;
+
+    // Wall plate first: thin relative to BOTH length and height (modular wall panels
+    // including ~square faces like 2×2.5×0.2). Door frames are thinner still.
+    if dy > thickness * 1.5 && length > thickness * 2.0 {
+        // Door frame only when clearly frame-like: very thin vs height, narrow thin
+        // ratio, and length spans a passage-like width relative to height.
+        let door_thin = thickness_over_height < 0.07 && thin < 0.12;
+        let door_proportions = dy > length * 0.85 && length > dy * 0.55 && length > thickness * 3.0;
+        if door_thin && door_proportions {
             return ShapeFamily::DoorFrame;
+        }
+        if dy > horiz_max * 0.45 || length > thickness * 2.0 {
+            return ShapeFamily::WallSlab;
         }
     }
 
     // Column: tall, footprint nearly square and compact vs height
     if dy > horiz_max * 1.4 && (horiz_max / horiz_min) < 1.45 && horiz_max < dy * 0.55 {
         return ShapeFamily::Column;
-    }
-
-    // Wall slab: tall relative to thickness; elongated in one horizontal axis
-    if dy > thickness * 1.5 && (dy > horiz_max * 0.45 || length > thickness * 2.0) {
-        return ShapeFamily::WallSlab;
     }
 
     // Secondary wall: height is longest dim
@@ -365,12 +367,14 @@ mod tests {
     }
 
     #[test]
-    fn named_wall_overrides_door_frame_silhouette() {
-        // Same proportions as a door-frame AABB, but named as a wall panel.
+    fn square_thin_wall_panel_is_wall_slab_not_door_frame() {
+        // Typical modular wall_box: 2m × 2.5m × 0.2m — wall plate, not door frame.
         let b = bounds([-1.0, 0.0, -0.1], [1.0, 2.5, 0.1]);
-        assert_eq!(shape_family_from_bounds(&b), ShapeFamily::DoorFrame);
-        let a = dummy_asset(b, "walls/wall_box.glb", "wall_box");
+        assert_eq!(shape_family_from_bounds(&b), ShapeFamily::WallSlab);
+        let a = dummy_asset(b, "export/mesh_01.glb", "mesh_01");
         assert_eq!(base_class_geometry_first(&a), "wall_edge");
+        let named = dummy_asset(b, "walls/wall_box.glb", "wall_box");
+        assert_eq!(base_class_geometry_first(&named), "wall_edge");
     }
 
     #[test]

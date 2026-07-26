@@ -317,57 +317,122 @@ fn path_excluded(source_path: &str, globs: &[String]) -> bool {
     })
 }
 
-/// Minimal glob: `*` (segment), `**` (any), case already lowercased.
+/// Minimal glob: `*` (one path segment, no `/`), `**` (any depth), case already lowercased.
 fn glob_match(pattern: &str, path: &str) -> bool {
-    if pattern == "**" || pattern == "*" {
+    if pattern == "**" {
         return true;
+    }
+    if pattern == "*" {
+        // Single star matches one segment only (no slash).
+        return !path.is_empty() && !path.contains('/');
     }
     // Exact
     if pattern == path {
         return true;
     }
-    // *.ext
+    // *.ext — only basename (no `/` in the star match)
     if let Some(ext) = pattern.strip_prefix("*.") {
+        if path.contains('/') {
+            return false;
+        }
         return path.ends_with(&format!(".{ext}")) || path.ends_with(ext);
     }
     // prefix/**
     if let Some(prefix) = pattern.strip_suffix("/**") {
         return path == prefix || path.starts_with(&format!("{prefix}/"));
     }
-    // **/name
+    // **/name or **/rest/with/slashes
     if let Some(suffix) = pattern.strip_prefix("**/") {
-        return path.ends_with(suffix) || path.contains(&format!("/{suffix}"));
+        if suffix.contains('*') {
+            // Fall through to general matcher for **/Models/*.glb etc.
+        } else {
+            return path == suffix
+                || path.ends_with(suffix)
+                || path.ends_with(&format!("/{suffix}"));
+        }
     }
-    // contains * mid
+    // General: `*` stays within one segment; `**` crosses `/`.
     if pattern.contains('*') {
-        let parts: Vec<&str> = pattern.split('*').collect();
-        if parts.is_empty() {
-            return true;
-        }
-        let mut rest = path;
-        if !parts[0].is_empty() {
-            if let Some(stripped) = rest.strip_prefix(parts[0]) {
-                rest = stripped;
-            } else {
-                return false;
-            }
-        }
-        for (i, part) in parts.iter().enumerate().skip(1) {
-            if part.is_empty() {
-                continue;
-            }
-            if i == parts.len() - 1 {
-                return rest.ends_with(part) || rest.contains(part);
-            }
-            if let Some(idx) = rest.find(part) {
-                rest = &rest[idx + part.len()..];
-            } else {
-                return false;
-            }
-        }
-        return true;
+        return glob_match_star(pattern, path);
     }
     path.contains(pattern)
+}
+
+/// Recursive glob: `*` = no `/`, `**` = anything (including empty).
+fn glob_match_star(pattern: &str, path: &str) -> bool {
+    glob_match_from(pattern.as_bytes(), 0, path.as_bytes(), 0)
+}
+
+fn glob_match_from(pat: &[u8], pi: usize, s: &[u8], si: usize) -> bool {
+    if pi >= pat.len() {
+        return si >= s.len();
+    }
+    // **
+    if pi + 1 < pat.len() && pat[pi] == b'*' && pat[pi + 1] == b'*' {
+        let mut next = pi + 2;
+        // Optional separator after **
+        if next < pat.len() && pat[next] == b'/' {
+            next += 1;
+        }
+        // Empty match or consume any prefix
+        let mut i = si;
+        loop {
+            if glob_match_from(pat, next, s, i) {
+                return true;
+            }
+            if i >= s.len() {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    // *
+    if pat[pi] == b'*' {
+        // Match zero or more non-slash chars
+        let mut i = si;
+        loop {
+            if glob_match_from(pat, pi + 1, s, i) {
+                return true;
+            }
+            if i >= s.len() || s[i] == b'/' {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    if si < s.len() && pat[pi] == s[si] {
+        return glob_match_from(pat, pi + 1, s, si + 1);
+    }
+    false
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::glob_match;
+
+    #[test]
+    fn single_star_stays_in_one_segment() {
+        assert!(glob_match("models/*.glb", "models/wall.glb"));
+        assert!(!glob_match("models/*.glb", "models/subdir/wall.glb"));
+        assert!(!glob_match("*.glb", "models/wall.glb"));
+        assert!(glob_match("*.glb", "wall.glb"));
+    }
+
+    #[test]
+    fn double_star_crosses_segments() {
+        assert!(glob_match("models/**", "models/wall.glb"));
+        assert!(glob_match("models/**", "models/subdir/wall.glb"));
+        assert!(glob_match("**/wall.glb", "models/subdir/wall.glb"));
+        assert!(glob_match("models/**/*.glb", "models/subdir/wall.glb"));
+        assert!(!glob_match("models/**/*.glb", "models/subdir/wall.gltf"));
+    }
+
+    #[test]
+    fn exact_and_prefix() {
+        assert!(glob_match("decals/foo.glb", "decals/foo.glb"));
+        assert!(glob_match("decals/**", "decals/a/b.glb"));
+        assert!(!glob_match("decals/**", "walls/a.glb"));
+    }
 }
 
 fn snap_tolerance_for(asset: &AssetRecord, sock: &ProposedSocket) -> f32 {
