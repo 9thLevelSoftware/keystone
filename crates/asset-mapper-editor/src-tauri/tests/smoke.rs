@@ -22,8 +22,8 @@ fn phase2_fixture_can_be_authored_saved_validated_and_exported() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     std::fs::copy(&source, temp.path().join("wall.glb")).expect("fixture copies");
 
-    let mut state =
-        init_pack_folder(temp.path(), InitPackOptions::for_tests("Phase 2 Smoke")).expect("pack initializes");
+    let mut state = init_pack_folder(temp.path(), InitPackOptions::for_tests("Phase 2 Smoke"))
+        .expect("pack initializes");
     state.pack.license_summary = "MIT OR Apache-2.0".to_owned();
     state.pack.connector_classes.push(ConnectorClass {
         class: "doorway".to_owned(),

@@ -99,7 +99,8 @@ fn index_preserves_manual_metadata_and_reports_changes() {
     std::fs::write(temp.path().join("wall.glb"), b"wall-v1").expect("wall is written");
     std::fs::write(temp.path().join("floor.glb"), b"floor-v1").expect("floor is written");
     std::fs::write(temp.path().join("pillar.glb"), b"pillar-v1").expect("pillar is written");
-    init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("init succeeds");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit"))
+        .expect("init succeeds");
 
     let mut loaded = read_pack_from_input(temp.path()).expect("sidecar reloads");
     let original_wall_hash = loaded

@@ -296,6 +296,8 @@ pub enum ReviewFlag {
     BoundsPlaceholder,
     OrientationPlaceholder,
     PivotPlaceholder,
+    /// Connectors were proposed from AABB faces because mesh sockets were unavailable.
+    AutoFromBoundsFallback,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]

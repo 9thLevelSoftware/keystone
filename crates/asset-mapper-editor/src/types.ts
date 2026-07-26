@@ -85,7 +85,8 @@ export interface AssetRecord {
 export type ReviewFlag =
   | "bounds_placeholder"
   | "orientation_placeholder"
-  | "pivot_placeholder";
+  | "pivot_placeholder"
+  | "auto_from_bounds_fallback";
 
 export interface PackProvenance {
   source?: string | null;

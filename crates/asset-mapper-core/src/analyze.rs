@@ -1,14 +1,19 @@
-//! Auto-analyze packs: propose connectors on bounds faces and class/rule wiring.
+//! Auto-analyze packs: propose mesh/bounds connectors and class/rule wiring.
 //!
 //! This is the default authoring path: machine proposes, human tweaks.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::mesh_geometry::MeshGeometry;
+use crate::mesh_sockets::{
+    ProposedSocket, SocketProposeOptions, SocketSource, propose_sockets_from_bounds,
+    propose_sockets_from_mesh,
+};
 use crate::schema::{
     AllowedRotation, AssetRecord, AssetType, CompatibilityRule, ConnectorClass, ConnectorFrame,
     ConnectorRecord, ConnectorRole, PackRecord, ReviewFlag,
 };
-use crate::suggest::{bounds_face_snaps, suggest_class_from_name};
+use crate::suggest::suggest_class_from_name;
 
 /// Options controlling auto-analysis.
 #[derive(Debug, Clone)]
@@ -19,6 +24,8 @@ pub struct AnalyzeOptions {
     pub min_face_span_ratio: f32,
     /// Prefer horizontal mates (wall_edge) vs vertical (floor_edge) heuristics.
     pub modular_kit_mode: bool,
+    /// Skip mesh socket detection and use AABB faces only.
+    pub aabb_only: bool,
 }
 
 impl Default for AnalyzeOptions {
@@ -27,6 +34,7 @@ impl Default for AnalyzeOptions {
             replace_existing_connectors: false,
             min_face_span_ratio: 0.05,
             modular_kit_mode: true,
+            aabb_only: false,
         }
     }
 }
@@ -37,31 +45,55 @@ pub struct AnalyzeReport {
     pub connectors_added: usize,
     pub classes_added: usize,
     pub rules_added: usize,
+    /// Assets that received mesh-derived sockets.
+    #[serde(default)]
+    pub mesh_socket_assets: usize,
+    /// Assets that fell back to AABB face centers.
+    #[serde(default)]
+    pub bounds_fallback_assets: usize,
     pub skipped_assets: Vec<String>,
     pub notes: Vec<String>,
 }
 
-/// Mutate `pack` in place: measure-independent auto connectors + class/rules.
+/// Mutate `pack` in place using AABB-only proposals (no mesh data).
 ///
-/// Call after bounds measurement for best results. Assets with placeholder
-/// unit-cube bounds still get face connectors (authors should re-measure).
+/// Prefer [`analyze_pack_with_meshes`] when geometry is available.
 pub fn analyze_pack(pack: &mut PackRecord, options: &AnalyzeOptions) -> AnalyzeReport {
+    analyze_pack_with_meshes(pack, options, &BTreeMap::new())
+}
+
+/// Analyze with optional per-asset mesh geometry (`asset_id` → mesh).
+///
+/// When a mesh is present and `aabb_only` is false, connectors are placed from
+/// mesh surface / portal detection. Otherwise AABB face centers are used.
+pub fn analyze_pack_with_meshes(
+    pack: &mut PackRecord,
+    options: &AnalyzeOptions,
+    meshes: &BTreeMap<String, MeshGeometry>,
+) -> AnalyzeReport {
     let mut report = AnalyzeReport {
         assets_processed: 0,
         connectors_added: 0,
         classes_added: 0,
         rules_added: 0,
+        mesh_socket_assets: 0,
+        bounds_fallback_assets: 0,
         skipped_assets: Vec::new(),
         notes: Vec::new(),
     };
 
-    // Track which class names we introduce this pass.
     let mut used_classes: BTreeSet<String> = pack
         .connector_classes
         .iter()
         .map(|c| c.class.clone())
         .collect();
     let mut new_classes: Vec<(String, String)> = Vec::new();
+
+    let socket_opts = SocketProposeOptions {
+        max_sockets: 12,
+        min_face_span_ratio: options.min_face_span_ratio,
+        skip_vertical_for_walls: options.modular_kit_mode,
+    };
 
     for asset in &mut pack.assets {
         report.assets_processed += 1;
@@ -79,13 +111,97 @@ pub fn analyze_pack(pack: &mut PackRecord, options: &AnalyzeOptions) -> AnalyzeR
             asset.connectors.clear();
         }
 
-        let class = class_for_asset(asset, options);
-        if used_classes.insert(class.clone()) {
-            new_classes.push((class.clone(), title_case(&class)));
-            report.classes_added += 1;
+        let base_class = class_for_asset(asset, options);
+        let wall_like = base_class.contains("wall") || base_class.contains("corridor");
+
+        let (sockets, used_mesh) =
+            if matches!(asset.asset_type, AssetType::Tile2d | AssetType::Sprite2d) {
+                (Vec::new(), false)
+            } else if options.aabb_only {
+                (
+                    propose_sockets_from_bounds(&asset.bounds, &socket_opts, wall_like),
+                    false,
+                )
+            } else if let Some(mesh) = meshes.get(&asset.asset_id) {
+                let mesh_socks =
+                    propose_sockets_from_mesh(mesh, &asset.bounds, &socket_opts, wall_like);
+                if mesh_socks.is_empty() {
+                    (
+                        propose_sockets_from_bounds(&asset.bounds, &socket_opts, wall_like),
+                        false,
+                    )
+                } else {
+                    (mesh_socks, true)
+                }
+            } else {
+                (
+                    propose_sockets_from_bounds(&asset.bounds, &socket_opts, wall_like),
+                    false,
+                )
+            };
+
+        if matches!(asset.asset_type, AssetType::Tile2d | AssetType::Sprite2d) {
+            let class = base_class.clone();
+            if used_classes.insert(class.clone()) {
+                new_classes.push((class.clone(), title_case(&class)));
+                report.classes_added += 1;
+            }
+            let added = auto_connectors_2d(asset, &class);
+            if added == 0 {
+                report
+                    .skipped_assets
+                    .push(format!("{} (no eligible 2d edges)", asset.asset_id));
+            } else {
+                report.connectors_added += added;
+            }
+            continue;
         }
 
-        let added = auto_connectors_for_asset(asset, &class, options);
+        if used_mesh {
+            report.mesh_socket_assets += 1;
+        } else if !sockets.is_empty() {
+            report.bounds_fallback_assets += 1;
+            if !asset
+                .review_flags
+                .contains(&ReviewFlag::AutoFromBoundsFallback)
+            {
+                asset.review_flags.push(ReviewFlag::AutoFromBoundsFallback);
+            }
+        }
+
+        let mut used_ids: BTreeSet<String> = asset
+            .connectors
+            .iter()
+            .map(|c| c.connector_id.clone())
+            .collect();
+
+        let mut added = 0usize;
+        for sock in &sockets {
+            let class = class_for_socket(asset, sock, &base_class, options);
+            if used_classes.insert(class.clone()) {
+                new_classes.push((class.clone(), title_case(&class)));
+                report.classes_added += 1;
+            }
+
+            let base_id = format!("{}_{}", asset.asset_id, sock.name);
+            let connector_id = unique_id(&base_id, &mut used_ids);
+            let snap = snap_tolerance_for(asset, sock);
+            asset.connectors.push(ConnectorRecord {
+                connector_id: connector_id.clone(),
+                display_name: title_case(&connector_id),
+                class,
+                role: ConnectorRole::Symmetric,
+                frame: ConnectorFrame::Frame3d {
+                    position: sock.position,
+                    orientation_quat_xyzw: sock.orientation_quat_xyzw,
+                },
+                mating_axis: sock.mating_axis,
+                up_reference: sock.up_reference,
+                snap_tolerance: snap,
+            });
+            added += 1;
+        }
+
         if added == 0 {
             report.skipped_assets.push(format!(
                 "{} (no eligible faces — check bounds)",
@@ -109,8 +225,7 @@ pub fn analyze_pack(pack: &mut PackRecord, options: &AnalyzeOptions) -> AnalyzeR
         });
     }
 
-    // After assets, ensure every used class participates in a rule.
-    report.rules_added += ensure_compatibility_rules(pack);
+    report.rules_added += synthesize_compatibility_rules(pack);
 
     if report.connectors_added == 0 {
         report.notes.push(
@@ -118,18 +233,18 @@ pub fn analyze_pack(pack: &mut PackRecord, options: &AnalyzeOptions) -> AnalyzeR
                 .to_owned(),
         );
     } else {
-        report.notes.push(
-            "Connectors and rules were proposed automatically. Review classes and tweak frames in the editor."
-                .to_owned(),
-        );
+        report.notes.push(format!(
+            "Connectors and rules proposed (mesh sockets on {}, AABB fallback on {}). Review and tweak in the editor.",
+            report.mesh_socket_assets, report.bounds_fallback_assets
+        ));
     }
 
     report
 }
 
 fn class_for_asset(asset: &AssetRecord, options: &AnalyzeOptions) -> String {
-    if let Some(from_name) =
-        suggest_class_from_name(&asset.display_name).or_else(|| suggest_class_from_name(&asset.asset_id))
+    if let Some(from_name) = suggest_class_from_name(&asset.display_name)
+        .or_else(|| suggest_class_from_name(&asset.asset_id))
     {
         return from_name;
     }
@@ -139,7 +254,6 @@ fn class_for_asset(asset: &AssetRecord, options: &AnalyzeOptions) -> String {
     }
 
     if options.modular_kit_mode {
-        // Tall thin → wall; flat → floor; else generic edge.
         let dx = (asset.bounds.max[0] - asset.bounds.min[0]).abs();
         let dy = (asset.bounds.max[1] - asset.bounds.min[1]).abs();
         let dz = (asset.bounds.max[2] - asset.bounds.min[2]).abs();
@@ -154,78 +268,60 @@ fn class_for_asset(asset: &AssetRecord, options: &AnalyzeOptions) -> String {
     "module_edge".to_owned()
 }
 
-fn auto_connectors_for_asset(
-    asset: &mut AssetRecord,
-    class: &str,
+fn class_for_socket(
+    asset: &AssetRecord,
+    sock: &ProposedSocket,
+    base_class: &str,
     options: &AnalyzeOptions,
-) -> usize {
-    if matches!(asset.asset_type, AssetType::Tile2d | AssetType::Sprite2d) {
-        return auto_connectors_2d(asset, class);
+) -> String {
+    // Name-based asset class wins for doors/windows.
+    if base_class == "doorway" || base_class == "window_frame" || base_class == "archway" {
+        return base_class.to_owned();
     }
 
-    let dims = [
-        (asset.bounds.max[0] - asset.bounds.min[0]).abs(),
-        (asset.bounds.max[1] - asset.bounds.min[1]).abs(),
-        (asset.bounds.max[2] - asset.bounds.min[2]).abs(),
-    ];
-    let longest = dims[0].max(dims[1]).max(dims[2]).max(1e-6);
-    let min_span = longest * options.min_face_span_ratio;
+    if !options.modular_kit_mode {
+        return base_class.to_owned();
+    }
 
-    let snaps = bounds_face_snaps(&asset.bounds);
-    let mut added = 0usize;
-    let mut used_ids: BTreeSet<String> = asset
-        .connectors
-        .iter()
-        .map(|c| c.connector_id.clone())
-        .collect();
+    let span_u = sock.face_span[0];
+    let span_v = sock.face_span[1];
+    let max_span = span_u.max(span_v);
+    let min_span = span_u.min(span_v).max(1e-6);
+    let aspect = max_span / min_span;
 
-    for snap in &snaps {
-        // Face spans on the two axes orthogonal to the outward normal.
-        let face_ok = match snap.name {
-            "pos_x" | "neg_x" => dims[1] >= min_span && dims[2] >= min_span,
-            "pos_y" | "neg_y" => dims[0] >= min_span && dims[2] >= min_span,
-            "pos_z" | "neg_z" => dims[0] >= min_span && dims[1] >= min_span,
-            _ => true,
+    // Portal on a wall-like piece → doorway if tall-ish opening.
+    if sock.source == SocketSource::MeshPortal {
+        let height = if sock.name.contains('y') {
+            span_u.max(span_v)
+        } else {
+            // vertical face: v is often height
+            span_v.max(span_u * 0.5)
         };
-        if !face_ok {
-            continue;
+        let dims_y = (asset.bounds.max[1] - asset.bounds.min[1]).abs();
+        if height > dims_y * 0.35 || aspect > 1.2 {
+            return "doorway".to_owned();
         }
-
-        // Modular kits: skip top/bottom for wall-like pieces (prefer horizontal mates).
-        if options.modular_kit_mode && class.contains("wall") && (snap.name == "pos_y" || snap.name == "neg_y")
-        {
-            continue;
-        }
-        if options.modular_kit_mode
-            && class.contains("floor")
-            && (snap.name == "pos_y" || snap.name == "neg_y")
-        {
-            continue;
-        }
-
-        let base_id = format!("{}_{}", asset.asset_id, snap.name);
-        let connector_id = unique_id(&base_id, &mut used_ids);
-        asset.connectors.push(ConnectorRecord {
-            connector_id: connector_id.clone(),
-            display_name: title_case(&connector_id),
-            class: class.to_owned(),
-            role: ConnectorRole::Symmetric,
-            frame: ConnectorFrame::Frame3d {
-                position: snap.position,
-                orientation_quat_xyzw: snap.orientation_quat_xyzw,
-            },
-            mating_axis: snap.mating_axis,
-            up_reference: snap.up_reference,
-            snap_tolerance: 0.01,
-        });
-        added += 1;
+        return "window_frame".to_owned();
     }
 
-    added
+    // Horizontal faces → floor
+    if sock.name == "pos_y" || sock.name == "neg_y" {
+        return "floor_edge".to_owned();
+    }
+
+    base_class.to_owned()
+}
+
+fn snap_tolerance_for(asset: &AssetRecord, sock: &ProposedSocket) -> f32 {
+    let longest = asset.dimensions[0]
+        .max(asset.dimensions[1])
+        .max(asset.dimensions[2])
+        .max(1e-3);
+    let face = sock.face_span[0].max(sock.face_span[1]).max(1e-3);
+    (face * 0.02).clamp(0.005, longest * 0.05)
 }
 
 fn auto_connectors_2d(asset: &mut AssetRecord, class: &str) -> usize {
-    // Four edge midpoints in XY (z=0 plane).
     let min = asset.bounds.min;
     let max = asset.bounds.max;
     let cx = (min[0] + max[0]) * 0.5;
@@ -266,7 +362,8 @@ fn auto_connectors_2d(asset: &mut AssetRecord, class: &str) -> usize {
     added
 }
 
-fn ensure_compatibility_rules(pack: &mut PackRecord) -> usize {
+/// Rich modular-kit rule ontology + same-class self rules.
+fn synthesize_compatibility_rules(pack: &mut PackRecord) -> usize {
     let classes: BTreeSet<String> = pack
         .assets
         .iter()
@@ -285,32 +382,107 @@ fn ensure_compatibility_rules(pack: &mut PackRecord) -> usize {
         .collect();
 
     let mut added = 0usize;
+
+    // Same-class self-mates with modular rotations.
     for class in &classes {
         let key = (class.clone(), class.clone());
         if existing.insert(key) {
+            let rotation = self_rule_rotation(class);
             pack.compatibility_rules.push(CompatibilityRule {
                 a_class: class.clone(),
                 b_class: class.clone(),
-                rotation: AllowedRotation::StepsDeg {
-                    values: vec![0.0, 90.0, 180.0, 270.0],
-                },
+                rotation,
             });
             added += 1;
         }
     }
 
-    // Cross-class mates that often pair in modular kits.
-    let cross = [("doorway", "wall_edge"), ("window_frame", "wall_edge")];
-    for (a, b) in cross {
-        if classes.contains(a) && classes.contains(b) {
-            let mut pair = [a.to_owned(), b.to_owned()];
+    // Cross-class ontology (only if both classes present).
+    let cross: &[(&str, &str, AllowedRotation)] = &[
+        (
+            "doorway",
+            "wall_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+        ("window_frame", "wall_edge", AllowedRotation::Locked),
+        (
+            "archway",
+            "wall_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+        (
+            "archway",
+            "corridor_end",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+        (
+            "corridor_end",
+            "wall_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+        (
+            "corridor_end",
+            "doorway",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+        (
+            "module_edge",
+            "wall_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 90.0, 180.0, 270.0],
+            },
+        ),
+        (
+            "module_edge",
+            "floor_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 90.0, 180.0, 270.0],
+            },
+        ),
+        (
+            "module_edge",
+            "corridor_end",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+        (
+            "tile_edge",
+            "floor_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 90.0, 180.0, 270.0],
+            },
+        ),
+        ("pipe_end", "pipe_end", AllowedRotation::Locked),
+        (
+            "roof_edge",
+            "wall_edge",
+            AllowedRotation::StepsDeg {
+                values: vec![0.0, 180.0],
+            },
+        ),
+    ];
+
+    for (a, b, rotation) in cross {
+        if classes.contains(*a) && classes.contains(*b) {
+            let mut pair = [(*a).to_owned(), (*b).to_owned()];
             pair.sort();
             let key = (pair[0].clone(), pair[1].clone());
             if existing.insert(key) {
                 pack.compatibility_rules.push(CompatibilityRule {
-                    a_class: a.to_owned(),
-                    b_class: b.to_owned(),
-                    rotation: AllowedRotation::Locked,
+                    a_class: (*a).to_owned(),
+                    b_class: (*b).to_owned(),
+                    rotation: rotation.clone(),
                 });
                 added += 1;
             }
@@ -333,6 +505,18 @@ fn ensure_compatibility_rules(pack: &mut PackRecord) -> usize {
     }
 
     added
+}
+
+fn self_rule_rotation(class: &str) -> AllowedRotation {
+    match class {
+        "doorway" | "window_frame" | "archway" | "pipe_end" => AllowedRotation::Locked,
+        "corridor_end" => AllowedRotation::StepsDeg {
+            values: vec![0.0, 180.0],
+        },
+        _ => AllowedRotation::StepsDeg {
+            values: vec![0.0, 90.0, 180.0, 270.0],
+        },
+    }
 }
 
 fn unique_id(base: &str, used: &mut BTreeSet<String>) -> String {

@@ -380,6 +380,10 @@ fn validate_review_flags(
                 "placeholder_pivot",
                 "asset pivot is placeholder data and needs review",
             ),
+            ReviewFlag::AutoFromBoundsFallback => (
+                "auto_bounds_fallback",
+                "connectors were proposed from AABB faces (mesh sockets unavailable) — review placement",
+            ),
         };
         diagnostics.push(Diagnostic::warning(code, message).with_asset(asset_id.to_owned()));
     }

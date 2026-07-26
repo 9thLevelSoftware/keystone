@@ -40,6 +40,10 @@ const REVIEW_FLAGS: { flag: ReviewFlag; label: string }[] = [
   { flag: "bounds_placeholder", label: "Bounds placeholder" },
   { flag: "orientation_placeholder", label: "Orientation placeholder" },
   { flag: "pivot_placeholder", label: "Pivot placeholder" },
+  {
+    flag: "auto_from_bounds_fallback",
+    label: "Auto from AABB (mesh fallback)",
+  },
 ];
 
 const ROLES: ConnectorRole[] = ["symmetric", "plug", "receptacle"];

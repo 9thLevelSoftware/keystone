@@ -126,6 +126,9 @@ Production-ready means:
 | X-09 | Status file hygiene | Done | This file |
 | X-10 | Fully functional editor UI | Done | Pack settings, tags, provenance, measure/drift, full connector/rules |
 | X-11 | FBX bounds | Done | ASCII + binary Kaydara FBX Vertices AABB (raw + zlib arrays) |
+| X-12 | Mesh-aware sockets | Done | glTF/OBJ mesh samples → surface/portal sockets; AABB fallback + review flag |
+| X-13 | Rich auto rules | Done | Modular ontology + same-class self-rules; per-socket class heuristics |
+| X-14 | Whole-pack assembly | Done | `propose_assembly_plan`, CLI `propose-assembly`, editor Pack assembly |
 
 ---
 

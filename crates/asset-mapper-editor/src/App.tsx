@@ -174,7 +174,11 @@ export default function App() {
             setAssemblyScene(null);
             setStatus(
               `Analyze: +${result.report.connectors_added} connectors, ` +
-                `+${result.report.classes_added} classes, +${result.report.rules_added} rules. ` +
+                `+${result.report.classes_added} classes, +${result.report.rules_added} rules` +
+                (result.report.mesh_socket_assets != null
+                  ? ` (mesh ${result.report.mesh_socket_assets}, AABB fallback ${result.report.bounds_fallback_assets ?? 0})`
+                  : "") +
+                `. ` +
                 (result.report.notes[0] ?? ""),
             );
           })

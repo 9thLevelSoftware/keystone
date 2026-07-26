@@ -64,3 +64,10 @@ pub struct AnalyzeEditorResult {
 pub struct ResolveEditorResult {
     pub scene: asset_mapper_core::ResolvedScene,
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposeAssemblyEditorResult {
+    pub report: asset_mapper_core::ProposeAssemblyReport,
+    pub scene: Option<asset_mapper_core::ResolvedScene>,
+}

@@ -7,7 +7,7 @@ pub mod error;
 use asset_mapper_core::AssemblyPlan;
 use dto::{
     AnalyzeEditorResult, EditorPackState, ExportEditorResult, IndexEditorResult,
-    MeasureEditorResult, ResolveEditorResult, SaveEditorResult,
+    MeasureEditorResult, ProposeAssemblyEditorResult, ResolveEditorResult, SaveEditorResult,
 };
 use error::EditorCommandError;
 
@@ -97,6 +97,15 @@ fn resolve_assembly_plan(
     commands::resolve_assembly_plan(state, plan)
 }
 
+#[tauri::command]
+fn propose_assembly(
+    state: EditorPackState,
+    max_pieces: Option<usize>,
+    root_asset_id: Option<String>,
+) -> Result<ProposeAssemblyEditorResult, EditorCommandError> {
+    commands::propose_assembly(state, max_pieces, root_asset_id)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -112,6 +121,7 @@ pub fn run() {
             analyze_pack_folder,
             read_pack_asset_bytes,
             resolve_assembly_plan,
+            propose_assembly,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Asset Mapper");

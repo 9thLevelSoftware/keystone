@@ -8,10 +8,12 @@ Keystone is the canonical metadata layer for jigsaw-style asset packs: it captur
 
 ## Status
 
-**v0.1.0 production cut on `main`.** Phases 0–3 + production metadata gates.  
+**Product path:** load a modular kit → **Analyze** (mesh sockets + rules) → tweak → **Pack assembly** preview → validate/save.  
+Phases 0–3 + production gates ship on Releases; honest-limits completion (mesh sockets, rich rules, multi-piece assembly) is the current product track (→ v0.2.0).
+
 **User docs:** [Getting started](docs/user-guide/getting-started.md) · [Desktop QA](docs/superpowers/QA-DESKTOP.md) · [Release](docs/superpowers/RELEASE.md) · [Status matrix](docs/superpowers/STATUS.md)
 
-Install from [GitHub Releases](https://github.com/9thLevelSoftware/keystone/releases) when a version tag has been published (Windows CLI zip + editor installer).
+Install from [GitHub Releases](https://github.com/9thLevelSoftware/keystone/releases) (Windows CLI zip + editor installer).
 
 | Phase | Scope | Status |
 | --- | --- | --- |
@@ -20,6 +22,7 @@ Install from [GitHub Releases](https://github.com/9thLevelSoftware/keystone/rele
 | 2 | Interactive editor MVP | Done |
 | 3 | Engine/export integration, 2D authoring, migrations | Done |
 | Prod gates | Provenance, vocabulary, WASM, full editor UI, FBX bounds | Done |
+| Honest limits | Mesh sockets, rich auto-rules, pack assembly preview | Done (this track) |
 
 ## Workspace
 
@@ -57,6 +60,8 @@ Commands:
   validate             Validate a pack (sidecar JSON or pack folder)
   bundle               Export a compact LLM-readable context bundle
   resolve              Resolve an assembly plan into a placed scene
+  propose-assembly     Auto multi-piece plan from connectors + rules
+  analyze              Measure bounds + propose mesh sockets/rules
   accept-drift         Accept content-hash drift after review
   measure-bounds       Re-measure mesh/image bounds
   migrate              Migrate pack sidecar to current schema version
