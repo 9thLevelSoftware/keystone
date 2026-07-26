@@ -1,7 +1,7 @@
 use asset_mapper_core::ReviewFlag;
 use asset_mapper_io::{
-    accept_hash_drift, apply_measured_bounds, init_pack_folder, measure_asset_bounds,
-    measure_pack_bounds, read_pack_from_input, write_pack_sidecar,
+    InitPackOptions, accept_hash_drift, apply_measured_bounds, init_pack_folder,
+    measure_asset_bounds, measure_pack_bounds, read_pack_from_input, write_pack_sidecar,
 };
 
 /// Minimal triangle GLB (accessor min/max [-0.5,0,0]..[0.5,1,0]), identity node.
@@ -132,7 +132,7 @@ fn init_pack_with_glb_clears_bounds_placeholder() {
     let temp = tempfile::tempdir().expect("temp");
     write_simple_triangle_glb(&temp.path().join("wall.glb"));
 
-    init_pack_folder(temp.path(), "Wall Pack".to_owned()).expect("init");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Wall Pack")).expect("init");
     let loaded = read_pack_from_input(temp.path()).expect("load");
     let asset = &loaded.pack.assets[0];
 
@@ -150,7 +150,7 @@ fn apply_measured_bounds_updates_asset() {
     let temp = tempfile::tempdir().expect("temp");
     write_simple_triangle_glb(&temp.path().join("real.glb"));
 
-    init_pack_folder(temp.path(), "Pack".to_owned()).expect("init");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Pack")).expect("init");
     let mut loaded = read_pack_from_input(temp.path()).expect("load");
     let asset = loaded
         .pack
@@ -172,7 +172,7 @@ fn measure_pack_bounds_reports_measured_failed_missing() {
     let temp = tempfile::tempdir().expect("temp");
     write_simple_triangle_glb(&temp.path().join("ok.glb"));
     std::fs::write(temp.path().join("nope.fbx"), b"fbx-stub").expect("fbx");
-    init_pack_folder(temp.path(), "Report Pack".to_owned()).expect("init");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Report Pack")).expect("init");
 
     // Add a missing sidecar asset manually.
     let mut loaded = read_pack_from_input(temp.path()).expect("load");
@@ -194,7 +194,7 @@ fn measure_pack_bounds_continues_when_one_glb_is_corrupt() {
     write_simple_triangle_glb(&temp.path().join("good.glb"));
     // Extension says glTF but content is not a valid GLB → MeasureBounds Err.
     std::fs::write(temp.path().join("bad.glb"), b"not-a-glb").expect("corrupt glb");
-    init_pack_folder(temp.path(), "Mixed Pack".to_owned()).expect("init");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Mixed Pack")).expect("init");
 
     let report = measure_pack_bounds(temp.path()).expect("pack measure must not abort");
     assert!(
@@ -239,7 +239,7 @@ fn measures_png_pixel_dimensions() {
 fn accept_hash_drift_updates_hash_keeps_connectors() {
     let temp = tempfile::tempdir().expect("temp");
     std::fs::write(temp.path().join("wall.glb"), b"v1").expect("write");
-    init_pack_folder(temp.path(), "Drift Pack".to_owned()).expect("init");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Drift Pack")).expect("init");
 
     let mut loaded = read_pack_from_input(temp.path()).expect("load");
     let original_hash = loaded.pack.assets[0].content_hash.clone();
@@ -283,7 +283,7 @@ fn accept_hash_drift_updates_hash_keeps_connectors() {
 fn accept_hash_drift_unknown_asset_filter() {
     let temp = tempfile::tempdir().expect("temp");
     std::fs::write(temp.path().join("wall.glb"), b"v1").expect("write");
-    init_pack_folder(temp.path(), "Drift Pack".to_owned()).expect("init");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Drift Pack")).expect("init");
 
     let err = accept_hash_drift(temp.path(), Some(vec!["nope".to_owned()]), false)
         .expect_err("unknown filter");

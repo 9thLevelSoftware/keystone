@@ -18,8 +18,19 @@ fn open_pack_folder(path: String) -> Result<EditorPackState, EditorCommandError>
 fn init_pack_folder(
     path: String,
     display_name: String,
+    license_summary: String,
+    author: Option<String>,
+    source: Option<String>,
 ) -> Result<EditorPackState, EditorCommandError> {
-    commands::init_pack_folder(PathBuf::from(path), display_name)
+    commands::init_pack_folder(
+        PathBuf::from(path),
+        asset_mapper_io::InitPackOptions {
+            display_name,
+            license_summary,
+            author,
+            source,
+        },
+    )
 }
 
 #[tauri::command]

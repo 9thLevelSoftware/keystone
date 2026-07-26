@@ -6,6 +6,7 @@ use asset_mapper_editor::commands::{
     export_bundle, index_pack_folder, init_pack_folder, open_pack_folder, save_pack, validate_pack,
 };
 use asset_mapper_editor::dto::EditorPackState;
+use asset_mapper_io::InitPackOptions;
 
 fn write_asset(path: &std::path::Path, name: &str, bytes: &[u8]) {
     std::fs::write(path.join(name), bytes).expect("asset is written");
@@ -21,36 +22,27 @@ fn init_open_validate_and_save_pack_state() {
     write_asset(temp.path(), "wall.glb", b"wall");
 
     let state: EditorPackState =
-        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
     assert_eq!(state.pack.display_name, "Dungeon Kit");
     assert_eq!(state.assets.len(), 1);
     assert_eq!(state.assets[0].source_path, "wall.glb");
     assert!(state.assets[0].preview_supported);
     assert!(state.assets[0].absolute_path.ends_with("wall.glb"));
 
-    let mut opened = open_pack_folder(temp.path()).expect("pack opens");
+    let opened = open_pack_folder(temp.path()).expect("pack opens");
     assert_eq!(opened.pack.pack_id, state.pack.pack_id);
 
-    // Init seeds an UNSPECIFIED license placeholder that fails production validate.
+    // Production init requires real license + author; only bounds placeholders warn.
     let raw_validation = validate_pack(opened.clone()).expect("validation runs");
     assert!(
         raw_validation
             .diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.code == "missing_license_summary" })
+            .all(|diagnostic| diagnostic.severity == asset_mapper_core::Severity::Warning)
     );
     assert!(raw_validation.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == "placeholder_bounds" && diagnostic.asset_id.as_deref() == Some("wall")
     }));
-
-    opened.pack.license_summary = "MIT OR Apache-2.0".to_owned();
-    let validation = validate_pack(opened.clone()).expect("validation runs after license set");
-    assert!(
-        validation
-            .diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.severity == asset_mapper_core::Severity::Warning)
-    );
 
     let saved = save_pack(opened).expect("pack saves with warnings");
     assert!(
@@ -75,7 +67,7 @@ fn relative_pack_input_returns_absolute_editor_paths() {
     let canonical_pack_root = std::fs::canonicalize(temp.path()).expect("pack root canonicalizes");
 
     let state =
-        init_pack_folder(relative_pack_root, "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(relative_pack_root, InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
     assert_absolute_pack_paths(&state, &canonical_pack_root);
 
     let opened = open_pack_folder(relative_pack_root).expect("pack opens");
@@ -87,7 +79,7 @@ fn export_bundle_is_blocked_by_validation_errors() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
     let mut state =
-        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
     state.pack.assets[0].connectors.push(ConnectorRecord {
         connector_id: "front".to_owned(),
         display_name: "Front".to_owned(),
@@ -128,7 +120,7 @@ fn export_bundle_writes_llm_bundle_when_valid() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
     let mut state =
-        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
     state.pack.license_summary = "MIT OR Apache-2.0".to_owned();
     state.pack.connector_classes.push(ConnectorClass {
         class: "doorway".to_owned(),
@@ -167,7 +159,7 @@ fn open_and_validate_reject_invalid_source_paths() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
     let mut state =
-        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
 
     state.pack.assets[0].source_path = "../outside.glb".to_owned();
     asset_mapper_io::write_pack_sidecar(temp.path(), &state.pack).expect("sidecar is written");
@@ -188,7 +180,7 @@ fn save_and_export_reject_invalid_source_paths_before_writing() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
     let mut state =
-        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
     state.pack.assets[0].source_path = "../outside.glb".to_owned();
 
     let save_error = save_pack(state.clone()).expect_err("save rejects invalid source path");
@@ -208,7 +200,7 @@ fn save_and_export_reject_invalid_source_paths_before_writing() {
 fn index_pack_folder_returns_state_with_changed_and_new_asset_statuses() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
-    init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
 
     write_asset(temp.path(), "wall.glb", b"changed wall");
     write_asset(temp.path(), "floor.glb", b"floor");
@@ -242,7 +234,7 @@ fn index_pack_folder_rejects_invalid_existing_source_paths_before_writing() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     write_asset(temp.path(), "wall.glb", b"wall");
     let mut state =
-        init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+        init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("pack initializes");
     state.pack.assets[0].source_path = "../outside.glb".to_owned();
     asset_mapper_io::write_pack_sidecar(temp.path(), &state.pack).expect("sidecar is written");
     let original_sidecar =

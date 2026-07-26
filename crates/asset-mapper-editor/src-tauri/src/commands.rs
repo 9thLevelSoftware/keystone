@@ -5,7 +5,7 @@ use asset_mapper_core::{
     LlmBundle, PackRecord, Severity, ValidationReport, validate_pack as validate_core_pack,
 };
 use asset_mapper_io::{
-    accept_hash_drift as io_accept_hash_drift, canonical_sidecar_path,
+    InitPackOptions, accept_hash_drift as io_accept_hash_drift, canonical_sidecar_path,
     index_pack_folder as io_index_pack_folder, init_pack_folder as io_init_pack_folder,
     measure_pack_bounds as io_measure_pack_bounds, read_pack_from_input, scan_assets,
     validate_pack_sources, write_pack_sidecar,
@@ -29,10 +29,10 @@ pub fn open_pack_folder(path: impl AsRef<Path>) -> Result<EditorPackState, Edito
 
 pub fn init_pack_folder(
     path: impl AsRef<Path>,
-    display_name: String,
+    options: InitPackOptions,
 ) -> Result<EditorPackState, EditorCommandError> {
     let pack_root = canonicalize_existing_path(path)?;
-    io_init_pack_folder(&pack_root, display_name)?;
+    io_init_pack_folder(&pack_root, options)?;
     open_pack_folder(&pack_root)
 }
 

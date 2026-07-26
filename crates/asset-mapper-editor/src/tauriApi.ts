@@ -29,8 +29,17 @@ export function openPackFolder(path: string): Promise<EditorPackState> {
 export function initPackFolder(
   path: string,
   displayName: string,
+  licenseSummary: string,
+  author?: string | null,
+  source?: string | null,
 ): Promise<EditorPackState> {
-  return invoke("init_pack_folder", { path, displayName });
+  return invoke("init_pack_folder", {
+    path,
+    displayName,
+    licenseSummary,
+    author: author ?? null,
+    source: source ?? null,
+  });
 }
 
 export function indexPackFolder(path: string): Promise<IndexEditorResult> {

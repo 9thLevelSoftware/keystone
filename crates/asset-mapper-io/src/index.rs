@@ -33,15 +33,74 @@ pub struct IndexReport {
     pub missing_assets: Vec<String>,
 }
 
+/// Options for creating a production-ready pack sidecar.
+#[derive(Debug, Clone)]
+pub struct InitPackOptions {
+    pub display_name: String,
+    /// Must pass [`asset_mapper_core::license_summary_is_production_ready`].
+    pub license_summary: String,
+    pub author: Option<String>,
+    pub source: Option<String>,
+}
+
+impl InitPackOptions {
+    /// Convenience constructor for unit tests and fixtures.
+    pub fn for_tests(display_name: impl Into<String>) -> Self {
+        Self {
+            display_name: display_name.into(),
+            license_summary: "MIT".to_owned(),
+            author: Some("Test Author".to_owned()),
+            source: None,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), IoError> {
+        if self.display_name.trim().is_empty() {
+            return Err(IoError::InvalidInitOptions {
+                message: "display name must not be empty".to_owned(),
+            });
+        }
+        if !asset_mapper_core::license_summary_is_production_ready(&self.license_summary) {
+            return Err(IoError::InvalidInitOptions {
+                message: "license_summary is required and must not be an UNSPECIFIED placeholder"
+                    .to_owned(),
+            });
+        }
+        let author = self.author.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
+        let source = self.source.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
+        if author.is_none() && source.is_none() {
+            return Err(IoError::InvalidInitOptions {
+                message: "at least one of author or source is required for provenance".to_owned(),
+            });
+        }
+        Ok(())
+    }
+}
+
 pub fn init_pack_folder(
     pack_root: impl AsRef<Path>,
-    display_name: String,
+    options: InitPackOptions,
 ) -> Result<IndexReport, IoError> {
+    options.validate()?;
     let pack_root = pack_root.as_ref();
     let sidecar_path = canonical_sidecar_path(pack_root);
     if sidecar_path.exists() {
         return Err(IoError::SidecarAlreadyExists { path: sidecar_path });
     }
+
+    let display_name = options.display_name.trim().to_owned();
+    let license_summary = options.license_summary.trim().to_owned();
+    let author = options
+        .author
+        .as_ref()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+    let source = options
+        .source
+        .as_ref()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(pack_root.display().to_string()));
 
     let indexed = scan_assets(pack_root)?;
     let pack_id = pack_id_from_display_name(&display_name);
@@ -61,12 +120,10 @@ pub fn init_pack_folder(
             forward_axis: Axis3::PosZ,
         },
         default_units: Unit::Meters,
-        // Placeholder license fails production validate until the author sets a real one.
-        license_summary: asset_mapper_core::PLACEHOLDER_LICENSE_SUMMARY.to_owned(),
+        license_summary,
         provenance: PackProvenance {
-            // Source is set so init packs meet provenance production requirements.
-            source: Some(pack_root.display().to_string()),
-            author: None,
+            source,
+            author,
             created_at: None,
             notes: Some(format!("Initialized pack `{display_name}`")),
         },

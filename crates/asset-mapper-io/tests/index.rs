@@ -1,6 +1,7 @@
 use asset_mapper_core::{AssetType, ReviewFlag};
 use asset_mapper_io::{
-    canonical_sidecar_path, index_pack_folder, init_pack_folder, read_pack_from_input, scan_assets,
+    InitPackOptions, canonical_sidecar_path, index_pack_folder, init_pack_folder,
+    read_pack_from_input, scan_assets,
 };
 
 #[test]
@@ -45,7 +46,8 @@ fn init_pack_folder_creates_sidecar_with_placeholder_records() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     std::fs::write(temp.path().join("wall.glb"), b"wall").expect("asset is written");
 
-    let report = init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("init succeeds");
+    let report = init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit"))
+        .expect("init succeeds");
     let sidecar_path = canonical_sidecar_path(temp.path());
 
     assert_eq!(
@@ -84,7 +86,7 @@ fn init_pack_folder_creates_sidecar_with_placeholder_records() {
 fn init_pack_folder_falls_back_to_pack_id_when_display_name_has_no_slug() {
     let temp = tempfile::tempdir().expect("temp dir is created");
 
-    init_pack_folder(temp.path(), "!!!".to_owned()).expect("init succeeds");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("!!!")).expect("init succeeds");
 
     let loaded = read_pack_from_input(temp.path()).expect("sidecar reloads");
     assert_eq!(loaded.pack.pack_id, "pack");
@@ -97,7 +99,7 @@ fn index_preserves_manual_metadata_and_reports_changes() {
     std::fs::write(temp.path().join("wall.glb"), b"wall-v1").expect("wall is written");
     std::fs::write(temp.path().join("floor.glb"), b"floor-v1").expect("floor is written");
     std::fs::write(temp.path().join("pillar.glb"), b"pillar-v1").expect("pillar is written");
-    init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("init succeeds");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("init succeeds");
 
     let mut loaded = read_pack_from_input(temp.path()).expect("sidecar reloads");
     let original_wall_hash = loaded

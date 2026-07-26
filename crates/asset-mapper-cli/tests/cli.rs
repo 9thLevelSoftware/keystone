@@ -117,6 +117,23 @@ fn resolve_rejects_invalid_connector_orientation_without_null_scene_json() {
 }
 
 #[test]
+fn init_rejects_missing_license() {
+    let temp = tempfile::tempdir().expect("temp dir is created");
+    let mut command = Command::cargo_bin("asset-mapper").expect("binary exists");
+    command
+        .args([
+            "init",
+            temp.path().to_str().expect("utf8"),
+            "--name",
+            "Kit",
+            "--author",
+            "Org",
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn init_creates_sidecar_for_pack_folder() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     std::fs::write(temp.path().join("wall.glb"), b"wall").expect("asset is written");
@@ -128,6 +145,10 @@ fn init_creates_sidecar_for_pack_folder() {
             temp.path().to_str().expect("temp path is utf-8"),
             "--name",
             "Dungeon Kit",
+            "--license",
+            "MIT",
+            "--author",
+            "Test Author",
         ])
         .assert()
         .success()
@@ -153,6 +174,10 @@ fn index_reports_drift_and_new_assets() {
         temp.path().to_str().expect("temp path is utf-8"),
         "--name",
         "Dungeon Kit",
+        "--license",
+        "MIT",
+        "--author",
+        "Test Author",
     ])
     .assert()
     .success();
@@ -274,6 +299,10 @@ fn measure_bounds_clears_placeholder_for_glb() {
         temp.path().to_str().expect("utf8"),
         "--name",
         "Measure Pack",
+        "--license",
+        "MIT",
+        "--author",
+        "Test Author",
     ])
     .assert()
     .success();
@@ -328,6 +357,10 @@ fn accept_drift_updates_hash() {
         temp.path().to_str().expect("temp path is utf-8"),
         "--name",
         "Drift Pack",
+        "--license",
+        "MIT",
+        "--author",
+        "Test Author",
     ])
     .assert()
     .success();
