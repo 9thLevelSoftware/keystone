@@ -33,9 +33,19 @@ asset-mapper analyze $env:KEYSTONE_BAKEOFF_PACK --replace `
 
 Reports land under `target/bakeoff/megakit-*.json` and `*.md`.
 
-### Known MegaKit failure mode (fixed in classification pass)
+### Classification policy (geometry-first)
 
-Early auto-map labeled almost every wall connector as `doorway` because weak mesh “portals” promoted class. Walls under `Walls/` now default to `wall_edge`; doorway only for door-named assets or **strong** portals.
+Filenames are **optional**. Classes come primarily from:
+
+1. **AABB shape family** — wall slab / floor plate / door frame / column / module  
+2. **Strong portal openings** — door-like vs window-like empty regions on mesh faces  
+3. **Soft name hints** — only boost when geometry is compatible (does not invent doorways on plain slabs)
+
+Anonymous packs (`mesh_01.glb`) still get wall/floor/doorway from shape.
+
+### Known MegaKit failure mode (fixed)
+
+Early auto-map labeled almost every wall connector as `doorway` because weak mesh “portals” promoted class. Weak portals no longer reclass; strong openings still promote by **geometry**.
 
 ## Generate fixtures
 

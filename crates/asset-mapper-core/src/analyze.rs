@@ -12,7 +12,8 @@ use crate::schema::{
     AllowedRotation, AssetRecord, AssetType, CompatibilityRule, ConnectorClass, ConnectorFrame,
     ConnectorRecord, ConnectorRole, PackRecord, ReviewFlag,
 };
-use crate::suggest::{suggest_class_from_asset, suggest_semantics_for_asset};
+use crate::shape_class::{base_class_geometry_first, class_for_socket_geometry_first};
+use crate::suggest::suggest_semantics_for_asset;
 
 /// Options controlling auto-analysis.
 #[derive(Debug, Clone)]
@@ -288,28 +289,15 @@ fn class_for_asset(asset: &AssetRecord, options: &AnalyzeOptions) -> String {
         return "tile_edge".to_owned();
     }
 
-    if let Some(from_path) = suggest_class_from_asset(asset) {
-        return from_path;
-    }
-
     if options.modular_kit_mode {
-        let dx = (asset.bounds.max[0] - asset.bounds.min[0]).abs();
-        let dy = (asset.bounds.max[1] - asset.bounds.min[1]).abs();
-        let dz = (asset.bounds.max[2] - asset.bounds.min[2]).abs();
-        if dy > dx.max(dz) * 1.2 {
-            return "wall_edge".to_owned();
-        }
-        if dy < dx.min(dz) * 0.35 {
-            return "floor_edge".to_owned();
-        }
+        // Geometry-first (AABB family + soft name boost). Works without "wall"/"door" filenames.
+        return base_class_geometry_first(asset);
     }
 
     "module_edge".to_owned()
 }
 
-/// Class per socket. Wall assets keep `wall_edge` on vertical faces unless a
-/// **strong** portal + door/window naming justifies promotion. Weak MeshPortal
-/// holes on sci-fi walls must not become doorway (MegaKit failure mode).
+/// Class per socket: geometry / portal openings first; filenames optional.
 fn class_for_socket(
     asset: &AssetRecord,
     sock: &ProposedSocket,
@@ -319,58 +307,7 @@ fn class_for_socket(
     if !options.modular_kit_mode {
         return base_class.to_owned();
     }
-
-    // Horizontal faces on floors/platforms.
-    if sock.name == "pos_y" || sock.name == "neg_y" {
-        if base_class == "floor_edge" || base_class == "tile_edge" {
-            return "floor_edge".to_owned();
-        }
-        // Skip top/bottom class noise on walls/doors — keep base only if floor-like.
-        if base_class.contains("wall") || base_class == "doorway" || base_class == "window_frame" {
-            return base_class.to_owned();
-        }
-        return "floor_edge".to_owned();
-    }
-
-    // Door/window assets: keep class on vertical faces.
-    if base_class == "doorway" || base_class == "window_frame" || base_class == "archway" {
-        return base_class.to_owned();
-    }
-
-    let path_l = asset.source_path.replace('\\', "/").to_ascii_lowercase();
-    let name_l = format!(
-        "{} {}",
-        asset.display_name.to_ascii_lowercase(),
-        asset.asset_id.to_ascii_lowercase()
-    );
-    let named_door = name_l.contains("door") || path_l.contains("door");
-    let named_window = name_l.contains("window") || path_l.contains("window");
-
-    // Portal class promotion is rare: needs strong portal + naming (or extreme opening).
-    if sock.is_strong_portal {
-        let span_u = sock.face_span[0];
-        let span_v = sock.face_span[1];
-        let height = span_v.max(span_u * 0.5);
-        let dims_y = (asset.bounds.max[1] - asset.bounds.min[1]).abs().max(1e-3);
-        let tall_opening = height > dims_y * 0.45;
-
-        if named_door {
-            return "doorway".to_owned();
-        }
-        if named_window {
-            return "window_frame".to_owned();
-        }
-        // Unnamed wall: only promote on very strong openings (true door cutouts).
-        if base_class == "wall_edge"
-            && tall_opening
-            && sock.portal_empty_frac >= 0.22
-        {
-            return "doorway".to_owned();
-        }
-    }
-
-    // Weak MeshPortal without strong flag: keep base (wall_edge / module_edge).
-    base_class.to_owned()
+    class_for_socket_geometry_first(asset, sock, base_class)
 }
 
 fn path_excluded(source_path: &str, globs: &[String]) -> bool {

@@ -9,6 +9,7 @@ pub mod mesh_sockets;
 pub mod migrate;
 pub mod resolver;
 pub mod schema;
+pub mod shape_class;
 pub mod suggest;
 pub mod validate;
 pub mod vibe_readiness;
@@ -27,6 +28,10 @@ pub use mesh_geometry::MeshGeometry;
 pub use mesh_sockets::{
     ProposedSocket, SocketProposeOptions, SocketSource, propose_sockets_from_bounds,
     propose_sockets_from_mesh,
+};
+pub use shape_class::{
+    OpeningKind, ShapeFamily, base_class_geometry_first, class_for_socket_geometry_first,
+    name_hint_for_asset, opening_kind_from_portal, shape_family_from_bounds,
 };
 pub use migrate::{MigrationError, MigrationReport, migrate_pack, pack_from_legacy_json};
 pub use resolver::{

@@ -1,7 +1,8 @@
 use asset_mapper_core::{
     AnalyzeOptions, AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION,
     ControlledVocabulary, CoordinateConvention, Handedness, MeshGeometry, PackProvenance,
-    PackRecord, Pivot, Unit, analyze_pack_with_meshes, suggest_class_from_asset,
+    PackRecord, Pivot, Unit, analyze_pack_with_meshes, base_class_geometry_first,
+    shape_family_from_bounds, ShapeFamily,
 };
 use std::collections::BTreeMap;
 
@@ -54,7 +55,49 @@ fn pack_with(assets: Vec<AssetRecord>) -> PackRecord {
 }
 
 #[test]
-fn path_walls_folder_suggests_wall_edge() {
+fn geometry_classifies_anonymous_wall_without_filename() {
+    let a = asset(
+        "mesh_01",
+        "export/mesh_01.gltf",
+        Bounds3 {
+            min: [-0.15, 0.0, -2.0],
+            max: [0.15, 3.0, 2.0],
+        },
+    );
+    assert_eq!(shape_family_from_bounds(&a.bounds), ShapeFamily::WallSlab);
+    assert_eq!(base_class_geometry_first(&a), "wall_edge");
+}
+
+#[test]
+fn geometry_classifies_anonymous_door_frame_without_filename() {
+    let a = asset(
+        "item_7",
+        "export/item_7.gltf",
+        Bounds3 {
+            min: [-1.2, 0.0, -0.08],
+            max: [1.2, 2.4, 0.08],
+        },
+    );
+    assert_eq!(shape_family_from_bounds(&a.bounds), ShapeFamily::DoorFrame);
+    assert_eq!(base_class_geometry_first(&a), "doorway");
+}
+
+#[test]
+fn geometry_classifies_anonymous_floor_without_filename() {
+    let a = asset(
+        "piece",
+        "a/b/c.gltf",
+        Bounds3 {
+            min: [-2.0, 0.0, -2.0],
+            max: [2.0, 0.15, 2.0],
+        },
+    );
+    assert_eq!(shape_family_from_bounds(&a.bounds), ShapeFamily::FloorPlate);
+    assert_eq!(base_class_geometry_first(&a), "floor_edge");
+}
+
+#[test]
+fn named_wall_path_still_wall_when_shape_agrees() {
     let a = asset(
         "wallastra",
         "Walls/WallAstra_Straight.gltf",
@@ -63,39 +106,7 @@ fn path_walls_folder_suggests_wall_edge() {
             max: [0.5, 3.0, 2.0],
         },
     );
-    assert_eq!(
-        suggest_class_from_asset(&a).as_deref(),
-        Some("wall_edge")
-    );
-}
-
-#[test]
-fn path_door_frame_suggests_doorway() {
-    let a = asset(
-        "door",
-        "Platforms/Door_Frame_Square.gltf",
-        Bounds3 {
-            min: [-2.0, 0.0, -0.2],
-            max: [2.0, 5.0, 0.2],
-        },
-    );
-    assert_eq!(suggest_class_from_asset(&a).as_deref(), Some("doorway"));
-}
-
-#[test]
-fn path_platform_suggests_floor_edge() {
-    let a = asset(
-        "plat",
-        "Platforms/Platform_Simple.gltf",
-        Bounds3 {
-            min: [-2.0, 0.0, -2.0],
-            max: [2.0, 0.2, 2.0],
-        },
-    );
-    assert_eq!(
-        suggest_class_from_asset(&a).as_deref(),
-        Some("floor_edge")
-    );
+    assert_eq!(base_class_geometry_first(&a), "wall_edge");
 }
 
 #[test]

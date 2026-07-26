@@ -20,8 +20,9 @@ All notable changes to Keystone (Asset Mapper) are documented in this file.
 
 ### MegaKit auto-map tune
 
-- Path-aware class suggestions (`Walls/` → wall_edge, door frames → doorway, platforms → floor_edge)
+- **Geometry-first classes** (AABB shape family + strong portal openings); filenames optional soft boost only
 - Portal class promotion only for **strong** portals with solid occupancy (stops doorway monopoly on sci-fi walls)
+- Soft path/name hints when they agree with shape (not required for wall/floor/door)
 - Analyze `--exclude-glob` / skip images by default; modular kit recipe for large packs
 - Vibe-ready: fail on class monopoly; class diversity checklist
 - Assembly root prefers full wall straights; structural mate scoring
