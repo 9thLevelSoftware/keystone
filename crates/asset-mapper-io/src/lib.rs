@@ -1,6 +1,7 @@
 pub mod bounds;
 pub mod error;
 pub mod index;
+pub mod mesh;
 pub mod migrate_io;
 pub mod sidecar;
 pub mod validation;
@@ -12,6 +13,7 @@ pub use index::{
     accept_hash_drift, analyze_pack_folder, apply_measured_bounds, index_pack_folder,
     init_pack_folder, measure_pack_bounds, scan_assets,
 };
+pub use mesh::load_mesh_geometry;
 pub use migrate_io::migrate_pack_input;
 pub use sidecar::{
     LoadedPack, METADATA_DIR, PackInputKind, ResolvedPackInput, SIDECAR_FILE,

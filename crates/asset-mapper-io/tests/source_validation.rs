@@ -9,7 +9,8 @@ fn source_validation_reports_missing_drifted_and_untracked_files() {
     let temp = tempfile::tempdir().expect("temp dir is created");
     std::fs::write(temp.path().join("wall.glb"), b"wall-v1").expect("wall is written");
     std::fs::write(temp.path().join("floor.glb"), b"floor-v1").expect("floor is written");
-    init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit")).expect("init succeeds");
+    init_pack_folder(temp.path(), InitPackOptions::for_tests("Dungeon Kit"))
+        .expect("init succeeds");
 
     let mut loaded = read_pack_from_input(temp.path()).expect("sidecar reloads");
     loaded

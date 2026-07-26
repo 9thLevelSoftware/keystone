@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use asset_mapper_core::{
-    AnalyzeOptions, AssemblyPlan, LlmBundle, PackRecord, Severity, ValidationReport,
-    resolve_plan as resolve_core_plan, validate_pack as validate_core_pack,
+    AnalyzeOptions, AssemblyPlan, LlmBundle, PackRecord, ProposeAssemblyOptions, Severity,
+    ValidationReport, propose_assembly_plan, resolve_plan as resolve_core_plan,
+    validate_pack as validate_core_pack,
 };
 use asset_mapper_io::{
     InitPackOptions, accept_hash_drift as io_accept_hash_drift,
@@ -171,10 +172,38 @@ pub fn resolve_assembly_plan(
     state: EditorPackState,
     plan: AssemblyPlan,
 ) -> Result<crate::dto::ResolveEditorResult, EditorCommandError> {
-    let scene = resolve_core_plan(&state.pack, &plan).map_err(|error| {
-        EditorCommandError::new("resolve_failed", error.to_string())
-    })?;
+    let scene = resolve_core_plan(&state.pack, &plan)
+        .map_err(|error| EditorCommandError::new("resolve_failed", error.to_string()))?;
     Ok(crate::dto::ResolveEditorResult { scene })
+}
+
+pub fn propose_assembly(
+    state: EditorPackState,
+    max_pieces: Option<usize>,
+    root_asset_id: Option<String>,
+) -> Result<crate::dto::ProposeAssemblyEditorResult, EditorCommandError> {
+    let report = propose_assembly_plan(
+        &state.pack,
+        &ProposeAssemblyOptions {
+            max_pieces: max_pieces.unwrap_or(8),
+            root_asset_id,
+            ..ProposeAssemblyOptions::default()
+        },
+    );
+    let scene = if report.plan.root_asset_id.is_empty() {
+        None
+    } else {
+        match resolve_core_plan(&state.pack, &report.plan) {
+            Ok(scene) => Some(scene),
+            Err(error) => {
+                return Err(EditorCommandError::new(
+                    "resolve_failed",
+                    format!("proposed plan failed to resolve: {error}"),
+                ));
+            }
+        }
+    };
+    Ok(crate::dto::ProposeAssemblyEditorResult { report, scene })
 }
 
 fn state_from_pack(

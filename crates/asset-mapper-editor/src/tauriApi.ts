@@ -17,8 +17,22 @@ export interface AnalyzeReport {
   connectors_added: number;
   classes_added: number;
   rules_added: number;
+  mesh_socket_assets?: number;
+  bounds_fallback_assets?: number;
   skipped_assets: string[];
   notes: string[];
+}
+
+export interface ProposeAssemblyReport {
+  plan: AssemblyPlan;
+  placed_asset_ids: string[];
+  unplaced_asset_ids: string[];
+  notes: string[];
+}
+
+export interface ProposeAssemblyEditorResult {
+  report: ProposeAssemblyReport;
+  scene: ResolvedScene | null;
 }
 
 export interface AnalyzeEditorResult {
@@ -109,4 +123,16 @@ export function resolveAssemblyPlan(
   plan: AssemblyPlan,
 ): Promise<{ scene: ResolvedScene }> {
   return invoke("resolve_assembly_plan", { state, plan });
+}
+
+export function proposeAssembly(
+  state: EditorPackState,
+  maxPieces = 8,
+  rootAssetId?: string | null,
+): Promise<ProposeAssemblyEditorResult> {
+  return invoke("propose_assembly", {
+    state,
+    maxPieces,
+    rootAssetId: rootAssetId ?? null,
+  });
 }

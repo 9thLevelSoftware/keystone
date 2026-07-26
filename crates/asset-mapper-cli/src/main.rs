@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use asset_mapper_core::{
-    AnalyzeOptions, AssemblyPlan, LlmBundle, export_connectors_csv, export_godot, export_unity,
-    export_unreal, gltf_keystone_extras, resolve_plan, validate_pack,
+    AnalyzeOptions, AssemblyPlan, LlmBundle, ProposeAssemblyOptions, export_connectors_csv,
+    export_godot, export_unity, export_unreal, gltf_keystone_extras, propose_assembly_plan,
+    resolve_plan, validate_pack,
 };
 use asset_mapper_io::{
     InitPackOptions, PackInputKind, accept_hash_drift, analyze_pack_folder, index_pack_folder,
@@ -78,6 +79,22 @@ enum Commands {
         /// Replace existing connectors instead of skipping assets that already have them.
         #[arg(long, default_value_t = false)]
         replace: bool,
+        /// Use AABB face centers only (skip mesh socket detection).
+        #[arg(long, default_value_t = false)]
+        aabb_only: bool,
+    },
+    /// Propose a multi-piece assembly plan from pack connectors and rules.
+    ProposeAssembly {
+        pack: PathBuf,
+        /// Maximum pieces including root (default 8).
+        #[arg(long, default_value_t = 8)]
+        max_pieces: usize,
+        /// Root asset id (default: asset with most connectors).
+        #[arg(long)]
+        root: Option<String>,
+        /// Write plan JSON to this path (default: stdout).
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
     },
     /// Migrate pack sidecar to the current schema version.
     Migrate {
@@ -185,15 +202,39 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(ExitCode::SUCCESS)
         }
-        Commands::Analyze { folder, replace } => {
+        Commands::Analyze {
+            folder,
+            replace,
+            aabb_only,
+        } => {
             let report = analyze_pack_folder(
                 folder,
                 AnalyzeOptions {
                     replace_existing_connectors: replace,
+                    aabb_only,
                     ..AnalyzeOptions::default()
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::ProposeAssembly {
+            pack,
+            max_pieces,
+            root,
+            output,
+        } => {
+            let loaded = read_pack_from_input(pack)?;
+            let report = propose_assembly_plan(
+                &loaded.pack,
+                &ProposeAssemblyOptions {
+                    max_pieces,
+                    root_asset_id: root,
+                    ..ProposeAssemblyOptions::default()
+                },
+            );
+            let body = serde_json::to_string_pretty(&report)?;
+            write_or_print(output, body)?;
             Ok(ExitCode::SUCCESS)
         }
         Commands::Migrate { pack } => {

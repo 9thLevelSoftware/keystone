@@ -47,24 +47,34 @@ asset-mapper validate .\my-pack
 
 1. **Init** → choose folder → enter pack name, license, and author.  
 2. If the yellow **Pack incomplete** banner appears, fill **Pack settings** (license + provenance).  
-3. **Measure** bounds, then author connectors and rules.
+3. Prefer **Analyze** (below) over hand-placing every connector.
 
-## 3. Auto-map then tweak (editor)
+## 3. Auto-map then tweak (default path)
 
-**Default path (what the product is for):**
+**What the product is for:** load a modular kit → the tool proposes sockets and rules → you tweak → you **see pieces snap together**.
+
+### Editor
 
 1. Open or Init the pack (license + author).  
-2. Click **Analyze** — measures bounds and **proposes connectors on mesh bounds faces**, connector classes, and compatibility rules.  
-3. Review proposed connectors in the viewport (green markers). Tweak positions/classes if needed.  
-4. Use **Assembly preview** (right panel): pick two connectors → **Preview mate** to see the resolver attach them in 3D.  
+2. Click **Analyze** — measures bounds, loads mesh samples (glTF/OBJ), and **proposes mating sockets** on mesh surfaces / openings (AABB face centers only when mesh is unavailable). Also proposes connector classes and compatibility rules.  
+3. Review green connector markers. Drag/tweak positions and classes if needed.  
+4. **Assembly preview** (right panel):
+   - **Pack assembly → Auto layout pack** — multi-piece connected layout via the real resolver (no hand-written plan).  
+   - **Two-piece mate** — pick two connectors for precise debug mates.  
 5. **Validate** → fix errors → **Save**.
 
-**CLI equivalent:**
+### CLI
 
 ```powershell
 asset-mapper analyze .\my-pack
 # force replace existing connectors:
 asset-mapper analyze .\my-pack --replace
+# AABB-only (skip mesh sockets):
+asset-mapper analyze .\my-pack --aabb-only
+
+# Multi-piece assembly plan (unique assets, greedy graph):
+asset-mapper propose-assembly .\my-pack --max-pieces 8 -o plan.json
+asset-mapper resolve .\my-pack .\plan.json
 ```
 
 **Manual path (optional):** Add connectors yourself, set classes/rules, then validate/save as before.
@@ -88,10 +98,19 @@ Invalid plans fail with a structured error (no silent wrong transforms).
 ## 5. Typical production loop
 
 ```text
-init (license + author) → measure-bounds → author in editor → validate → save
-  → bundle / export-engine → resolve plans from LLM or tools
+init (license + author) → Analyze → tweak connectors/rules
+  → Pack assembly preview → Validate → Save
+  → bundle / export-engine → resolve plans from LLM or propose-assembly
   → re-index when files change → accept-drift after review
 ```
+
+## Edge cases (not product ceilings)
+
+| Topic | Behavior |
+| --- | --- |
+| Mesh sockets | glTF/GLB/OBJ primary; FBX and unreadable meshes fall back to AABB faces with a review flag |
+| Auto layout | Uses each asset once (unique kit pieces); not an infinite tile world builder |
+| Organic sculpture | Modular kit geometry is the target; not CAD socket AI for every mesh |
 
 ## Next
 

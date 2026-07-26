@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 
 use asset_mapper_core::{
     AnalyzeOptions, AnalyzeReport, AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION,
-    ControlledVocabulary, CoordinateConvention, Handedness, PackProvenance, PackRecord, Pivot,
-    ReviewFlag, Unit, analyze_pack, hash::sha256_file,
+    ControlledVocabulary, CoordinateConvention, Handedness, MeshGeometry, PackProvenance,
+    PackRecord, Pivot, ReviewFlag, Unit, analyze_pack_with_meshes, hash::sha256_file,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::bounds::measure_asset_bounds;
 use crate::error::IoError;
+use crate::mesh::load_mesh_geometry;
 use crate::sidecar::{canonical_sidecar_path, read_pack_from_input, write_pack_sidecar};
 
 pub const SUPPORTED_ASSET_EXTENSIONS: &[&str] =
@@ -66,8 +67,16 @@ impl InitPackOptions {
                     .to_owned(),
             });
         }
-        let author = self.author.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
-        let source = self.source.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
+        let author = self
+            .author
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        let source = self
+            .source
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
         if author.is_none() && source.is_none() {
             return Err(IoError::InvalidInitOptions {
                 message: "at least one of author or source is required for provenance".to_owned(),
@@ -514,6 +523,9 @@ pub fn measure_pack_bounds(pack_root: impl AsRef<Path>) -> Result<MeasureBoundsR
 }
 
 /// Measure bounds (best-effort) then auto-propose connectors, classes, and rules.
+///
+/// Loads glTF/OBJ mesh samples for mesh-aware sockets when `options.aabb_only`
+/// is false; falls back to AABB face centers per asset when mesh load fails.
 pub fn analyze_pack_folder(
     pack_root: impl AsRef<Path>,
     options: AnalyzeOptions,
@@ -522,7 +534,24 @@ pub fn analyze_pack_folder(
     // Prefer fresh bounds before proposing face connectors.
     let _ = measure_pack_bounds(pack_root);
     let mut loaded = read_pack_from_input(pack_root)?;
-    let report = analyze_pack(&mut loaded.pack, &options);
+
+    let mut meshes: BTreeMap<String, MeshGeometry> = BTreeMap::new();
+    if !options.aabb_only {
+        for asset in &loaded.pack.assets {
+            let absolute = pack_root.join(&asset.source_path);
+            match load_mesh_geometry(&absolute) {
+                Ok(Some(mesh)) if !mesh.is_empty() => {
+                    meshes.insert(asset.asset_id.clone(), mesh);
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    // Soft-fail: bounds fallback inside analyze.
+                }
+            }
+        }
+    }
+
+    let report = analyze_pack_with_meshes(&mut loaded.pack, &options, &meshes);
     write_pack_sidecar(pack_root, &loaded.pack)?;
     Ok(report)
 }
