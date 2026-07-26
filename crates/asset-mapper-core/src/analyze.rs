@@ -106,23 +106,18 @@ pub fn analyze_pack_with_meshes(
     for asset in &mut pack.assets {
         report.assets_processed += 1;
 
+        // Skipped assets must remain untouched: do not clear connectors when
+        // --replace is set. Only assets we actually re-propose for get cleared.
         if path_excluded(&asset.source_path, &options.exclude_globs) {
-            if options.replace_existing_connectors {
-                asset.connectors.clear();
-            }
-            report.skipped_assets.push(format!(
-                "{} (excluded by glob)",
-                asset.asset_id
-            ));
+            report
+                .skipped_assets
+                .push(format!("{} (excluded by glob)", asset.asset_id));
             continue;
         }
 
         if options.skip_images
             && matches!(asset.asset_type, AssetType::Sprite2d | AssetType::Tile2d)
         {
-            if options.replace_existing_connectors {
-                asset.connectors.clear();
-            }
             report
                 .skipped_assets
                 .push(format!("{} (image/sprite skipped)", asset.asset_id));

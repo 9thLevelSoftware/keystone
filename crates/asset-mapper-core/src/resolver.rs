@@ -116,6 +116,9 @@ pub enum ResolveError {
         asset_id: String,
         connector_id: String,
     },
+
+    #[error("asset `{asset_id}` is already placed in this plan (unique assets only)")]
+    DuplicatePlacedAsset { asset_id: String },
 }
 
 /// Placed/anchor asset + connector ids for resolve failures (boxed in error variants).
@@ -160,6 +163,7 @@ impl ResolveError {
             Self::InvalidConnectorAxes { .. } => "invalid_connector_axes",
             Self::InvalidConnectorOrientation { .. } => "invalid_connector_orientation",
             Self::Invalid2dNormal { .. } => "invalid_2d_normal",
+            Self::DuplicatePlacedAsset { .. } => "duplicate_placed_asset",
         }
     }
 
@@ -171,8 +175,9 @@ impl ResolveError {
             | Self::AnchorAssetNotPlaced { .. }
             | Self::UnknownConnector { .. }
             | Self::MixedConnectorDimensions(_)
-            | Self::RotationChoiceNotAllowed { .. } => ResolveFixTarget::FixPlan,
-            Self::IncompatibleConnectorClasses { .. } => ResolveFixTarget::FixPack,
+            | Self::RotationChoiceNotAllowed { .. }
+            | Self::IncompatibleConnectorClasses { .. }
+            | Self::DuplicatePlacedAsset { .. } => ResolveFixTarget::FixPlan,
             Self::Non3dConnector { .. }
             | Self::Non2dConnector { .. }
             | Self::InvalidConnectorAxes { .. }
@@ -211,7 +216,9 @@ impl ResolveError {
                 ..
             } => {
                 format!(
-                    "Add a compatibility rule pairing `{placed_class}` with `{anchor_class}`, or change connector classes so they match an existing rule."
+                    "Pick a connector pair whose classes are covered by a compatibility rule \
+(classes `{placed_class}` and `{anchor_class}` are not paired). Optionally add a pack rule \
+if this pairing should be allowed."
                 )
             }
             Self::RotationChoiceNotAllowed { .. } => {
@@ -224,6 +231,11 @@ impl ResolveError {
                 "Fix the connector orientation quaternion (must be unit, non-zero).".to_owned()
             }
             Self::Invalid2dNormal { .. } => "Set a non-zero 2D connector normal.".to_owned(),
+            Self::DuplicatePlacedAsset { .. } => {
+                "Each asset_id may appear at most once per plan (root or placed). \
+For repeated tiles, place extra instances outside Keystone."
+                    .to_owned()
+            }
         }
     }
 
@@ -232,6 +244,7 @@ impl ResolveError {
         match self {
             Self::UnknownRootAsset { root_asset_id } => Some(root_asset_id),
             Self::UnknownPlacedAsset { asset_id }
+            | Self::DuplicatePlacedAsset { asset_id }
             | Self::UnknownConnector { asset_id, .. }
             | Self::Non3dConnector { asset_id, .. }
             | Self::Non2dConnector { asset_id, .. }
@@ -322,6 +335,13 @@ pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedSc
                 anchor_asset_id: operation.anchor_asset_id.clone(),
             }
         })?;
+
+        // Unique-asset plan contract: each asset_id appears at most once (root or placed).
+        if placements_by_asset_id.contains_key(&operation.placed_asset_id) {
+            return Err(ResolveError::DuplicatePlacedAsset {
+                asset_id: operation.placed_asset_id.clone(),
+            });
+        }
 
         let anchor_asset_pose = *placements_by_asset_id
             .get(&operation.anchor_asset_id)

@@ -6,7 +6,23 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::assembly_propose::rule_partner_map;
-use crate::schema::{AssetType, PackRecord};
+use crate::schema::{AssetType, ConnectorFrame, PackRecord};
+
+/// Distinguishes Frame2d vs Frame3d so connectivity only links resolvable pairs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum FrameKind {
+    Frame2d,
+    Frame3d,
+}
+
+impl FrameKind {
+    fn from_frame(frame: &ConnectorFrame) -> Self {
+        match frame {
+            ConnectorFrame::Frame2d { .. } => Self::Frame2d,
+            ConnectorFrame::Frame3d { .. } => Self::Frame3d,
+        }
+    }
+}
 
 /// Checklist-style vibe readiness report (JSON-friendly).
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -268,7 +284,10 @@ pub fn vibe_readiness(pack: &PackRecord) -> VibeReadinessReport {
     checklist.push(VibeChecklistItem {
         id: "class_diversity".to_owned(),
         ok: diversity_ok,
-        detail: format!("{} distinct connector class(es) in use", classes_in_use.len()),
+        detail: format!(
+            "{} distinct connector class(es) in use",
+            classes_in_use.len()
+        ),
     });
 
     // Ready = machine-mappable multi-piece kit: ≥2 connected assets, rules/coverage ok.
@@ -341,17 +360,20 @@ fn asset_connectivity_components(
         return Vec::new();
     }
 
-    let mut class_to_assets: HashMap<String, Vec<String>> = HashMap::new();
+    // Index (class, frame_kind) → assets that expose a connector of that pair.
+    // Readiness only counts pairs that could actually resolve (same frame dimension).
+    let mut class_frame_to_assets: HashMap<(String, FrameKind), Vec<String>> = HashMap::new();
     for asset in &pack.assets {
         for c in &asset.connectors {
-            class_to_assets
-                .entry(c.class.clone())
+            class_frame_to_assets
+                .entry((c.class.clone(), FrameKind::from_frame(&c.frame)))
                 .or_default()
                 .push(asset.asset_id.clone());
         }
     }
 
-    // Undirected graph: edge if two assets share compatible class pairs.
+    // Undirected graph: edge if two assets have at least one connector pair
+    // with compatible classes AND matching frame dimension (both 2d or both 3d).
     let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
     for id in &ids {
         adj.entry(id.clone()).or_default();
@@ -362,8 +384,11 @@ fn asset_connectivity_components(
             let Some(plist) = partners.get(&c.class) else {
                 continue;
             };
+            let frame_kind = FrameKind::from_frame(&c.frame);
             for partner_class in plist {
-                if let Some(others) = class_to_assets.get(partner_class) {
+                if let Some(others) =
+                    class_frame_to_assets.get(&(partner_class.clone(), frame_kind))
+                {
                     for other in others {
                         if other != &asset.asset_id {
                             adj.entry(asset.asset_id.clone())
@@ -534,6 +559,32 @@ mod tests {
                 .checklist
                 .iter()
                 .any(|c| c.id == "class_rules" && !c.ok)
+        );
+    }
+
+    #[test]
+    fn mixed_frame_dimensions_not_connected() {
+        // Compatible classes but Frame2d vs Frame3d must not form a multi-asset component.
+        let mut pack = emptyish_pack();
+        pack.assets[1].connectors[0].frame = ConnectorFrame::Frame2d {
+            position: [1.0, 0.0],
+            normal: [1.0, 0.0],
+            grid_cell: None,
+        };
+        let report = vibe_readiness(&pack);
+        assert!(
+            !report.ready,
+            "mixed frame kinds should not count as connected: score={} notes={:?}",
+            report.score, report.notes
+        );
+        assert!(
+            report
+                .checklist
+                .iter()
+                .any(|c| c.id == "multi_piece_connectivity" && !c.ok)
+                || report.score < 70,
+            "checklist={:?}",
+            report.checklist
         );
     }
 

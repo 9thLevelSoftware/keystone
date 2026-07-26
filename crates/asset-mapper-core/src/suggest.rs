@@ -47,10 +47,7 @@ pub fn suggest_class_from_name(name: &str) -> Option<String> {
 pub fn suggest_class_from_asset(asset: &AssetRecord) -> Option<String> {
     let path = asset.source_path.replace('\\', "/");
     let lower_path = path.to_ascii_lowercase();
-    let file = lower_path
-        .rsplit('/')
-        .next()
-        .unwrap_or(lower_path.as_str());
+    let file = lower_path.rsplit('/').next().unwrap_or(lower_path.as_str());
     let file_stem = file.rsplit_once('.').map(|(s, _)| s).unwrap_or(file);
 
     // Explicit non-modular categories: leave to shape or generic module.

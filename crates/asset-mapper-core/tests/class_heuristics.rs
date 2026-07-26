@@ -1,8 +1,8 @@
 use asset_mapper_core::{
-    AnalyzeOptions, AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION,
-    ControlledVocabulary, CoordinateConvention, Handedness, MeshGeometry, PackProvenance,
-    PackRecord, Pivot, Unit, analyze_pack_with_meshes, base_class_geometry_first,
-    shape_family_from_bounds, ShapeFamily,
+    AnalyzeOptions, AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION, ConnectorFrame,
+    ConnectorRecord, ConnectorRole, ControlledVocabulary, CoordinateConvention, Handedness,
+    MeshGeometry, PackProvenance, PackRecord, Pivot, ShapeFamily, Unit, analyze_pack_with_meshes,
+    base_class_geometry_first, shape_family_from_bounds,
 };
 use std::collections::BTreeMap;
 
@@ -154,11 +154,7 @@ fn wall_with_mesh_does_not_become_all_doorway() {
     );
     let a = &pack.assets[0];
     assert!(!a.connectors.is_empty());
-    let doorway_n = a
-        .connectors
-        .iter()
-        .filter(|c| c.class == "doorway")
-        .count();
+    let doorway_n = a.connectors.iter().filter(|c| c.class == "doorway").count();
     let wall_n = a
         .connectors
         .iter()
@@ -167,10 +163,7 @@ fn wall_with_mesh_does_not_become_all_doorway() {
     assert!(
         wall_n >= doorway_n,
         "expected wall_edge majority, got wall={wall_n} doorway={doorway_n} all={:?}",
-        a.connectors
-            .iter()
-            .map(|c| &c.class)
-            .collect::<Vec<_>>()
+        a.connectors.iter().map(|c| &c.class).collect::<Vec<_>>()
     );
 }
 
@@ -194,6 +187,21 @@ fn exclude_glob_skips_decals() {
             },
         ),
     ]);
+    // Hand-authored connector on an excluded asset must survive --replace.
+    pack.assets[0].connectors.push(ConnectorRecord {
+        connector_id: "hand_authored".to_owned(),
+        display_name: "Hand".to_owned(),
+        class: "decal_pin".to_owned(),
+        role: ConnectorRole::Symmetric,
+        frame: ConnectorFrame::Frame3d {
+            position: [0.0, 0.0, 0.0],
+            orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+        },
+        mating_axis: Axis3::PosZ,
+        up_reference: Axis3::PosY,
+        snap_tolerance: 0.01,
+        face_size: None,
+    });
     analyze_pack_with_meshes(
         &mut pack,
         &AnalyzeOptions {
@@ -203,14 +211,9 @@ fn exclude_glob_skips_decals() {
         },
         &BTreeMap::new(),
     );
-    assert!(
-        pack.assets
-            .iter()
-            .find(|a| a.asset_id == "decal")
-            .unwrap()
-            .connectors
-            .is_empty()
-    );
+    let decal = pack.assets.iter().find(|a| a.asset_id == "decal").unwrap();
+    assert_eq!(decal.connectors.len(), 1);
+    assert_eq!(decal.connectors[0].connector_id, "hand_authored");
     assert!(
         !pack
             .assets

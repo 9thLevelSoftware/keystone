@@ -29,16 +29,16 @@ pub use mesh_sockets::{
     ProposedSocket, SocketProposeOptions, SocketSource, propose_sockets_from_bounds,
     propose_sockets_from_mesh,
 };
-pub use shape_class::{
-    OpeningKind, ShapeFamily, base_class_geometry_first, class_for_socket_geometry_first,
-    name_hint_for_asset, opening_kind_from_portal, shape_family_from_bounds,
-};
 pub use migrate::{MigrationError, MigrationReport, migrate_pack, pack_from_legacy_json};
 pub use resolver::{
     AssetPlacement, MateEndpoints, ResolveError, ResolveErrorReport, ResolveFixTarget,
     ResolvedScene, resolve_plan,
 };
 pub use schema::*;
+pub use shape_class::{
+    OpeningKind, ShapeFamily, base_class_geometry_first, class_for_socket_geometry_first,
+    name_hint_for_asset, opening_kind_from_portal, shape_family_from_bounds,
+};
 pub use suggest::{
     FaceSnap, SuggestedSemantics, bounds_face_snaps, connector_on_face, duplicate_connector,
     snap_connector_to_nearest_face, suggest_class_from_asset, suggest_class_from_name,

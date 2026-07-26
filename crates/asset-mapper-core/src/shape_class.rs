@@ -124,7 +124,9 @@ fn contains_token(hay: &str, needle: &str) -> bool {
     }
     // Require non-letter boundaries for short needles to reduce false positives.
     if needle.len() <= 4 {
-        return hay.split(|c: char| !c.is_ascii_alphanumeric()).any(|t| t == needle);
+        return hay
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|t| t == needle);
     }
     true
 }
@@ -188,10 +190,7 @@ pub enum OpeningKind {
 }
 
 /// Classify a strong portal opening using **geometry only** (opening size vs asset).
-pub fn opening_kind_from_portal(
-    asset: &AssetRecord,
-    sock: &ProposedSocket,
-) -> OpeningKind {
+pub fn opening_kind_from_portal(asset: &AssetRecord, sock: &ProposedSocket) -> OpeningKind {
     if !sock.is_strong_portal && sock.source != SocketSource::MeshPortal {
         return OpeningKind::None;
     }
@@ -217,8 +216,7 @@ pub fn opening_kind_from_portal(
     // Door: tall opening (large fraction of wall height), moderate width, tall aspect.
     if sock.is_strong_portal
         && height_frac >= 0.55
-        && width_frac >= 0.12
-        && width_frac <= 0.75
+        && (0.12..=0.75).contains(&width_frac)
         && aspect >= 1.15
         && sock.portal_empty_frac >= 0.14
     {
@@ -227,8 +225,7 @@ pub fn opening_kind_from_portal(
 
     // Window: elevated / shorter opening, wider aspect range.
     if sock.is_strong_portal
-        && height_frac >= 0.18
-        && height_frac < 0.55
+        && (0.18..0.55).contains(&height_frac)
         && width_frac >= 0.10
         && sock.portal_empty_frac >= 0.12
     {
