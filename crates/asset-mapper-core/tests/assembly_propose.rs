@@ -190,6 +190,147 @@ fn wall_door_cross_rules_from_analyze() {
 }
 
 #[test]
+fn pick_root_avoids_lonely_self_rule_class() {
+    // One window-only piece with 2 connectors must not beat a wall that can mate.
+    let mut pack = pack_with_three_walls();
+    pack.assets.push(AssetRecord {
+        asset_id: "lonely_window".to_owned(),
+        source_path: "window.glb".to_owned(),
+        content_hash: "sha256:w".to_owned(),
+        display_name: "Lonely Window".to_owned(),
+        asset_type: AssetType::Model3d,
+        bounds: Bounds3 {
+            min: [-0.5, 1.0, -0.05],
+            max: [0.5, 1.8, 0.05],
+        },
+        dimensions: [1.0, 0.8, 0.1],
+        pivot: Pivot::Origin,
+        up_axis: Axis3::PosY,
+        forward_axis: Axis3::PosZ,
+        semantic_tags: vec![],
+        affordances: vec![],
+        placement_constraints: vec![],
+        review_flags: vec![],
+        connectors: vec![
+            ConnectorRecord {
+                connector_id: "win_a".to_owned(),
+                display_name: "A".to_owned(),
+                class: "window_frame".to_owned(),
+                role: ConnectorRole::Symmetric,
+                frame: ConnectorFrame::Frame3d {
+                    position: [0.0, 1.4, 0.05],
+                    orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                },
+                mating_axis: Axis3::PosZ,
+                up_reference: Axis3::PosY,
+                snap_tolerance: 0.01,
+                face_size: Some([1.0, 0.8]),
+            },
+            ConnectorRecord {
+                connector_id: "win_b".to_owned(),
+                display_name: "B".to_owned(),
+                class: "window_frame".to_owned(),
+                role: ConnectorRole::Symmetric,
+                frame: ConnectorFrame::Frame3d {
+                    position: [0.0, 1.4, -0.05],
+                    orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                },
+                mating_axis: Axis3::PosZ,
+                up_reference: Axis3::PosY,
+                snap_tolerance: 0.01,
+                face_size: Some([1.0, 0.8]),
+            },
+        ],
+    });
+    pack.connector_classes.push(ConnectorClass {
+        class: "window_frame".to_owned(),
+        display_name: "Window".to_owned(),
+    });
+    pack.compatibility_rules.push(CompatibilityRule {
+        a_class: "window_frame".to_owned(),
+        b_class: "window_frame".to_owned(),
+        rotation: AllowedRotation::Locked,
+    });
+
+    let report = propose_assembly_plan(&pack, &ProposeAssemblyOptions::default());
+    assert_ne!(
+        report.plan.root_asset_id, "lonely_window",
+        "root should not be a class with no multi-asset mates: {:?}",
+        report
+    );
+    assert!(
+        report.placed_asset_ids.len() >= 2,
+        "expected multi-piece plan from walls, got {:?}",
+        report
+    );
+}
+
+#[test]
+fn cross_class_face_size_mismatch_still_mates() {
+    // Full wall face vs smaller doorway portal must still propose an attach.
+    let mut pack = pack_with_three_walls();
+    pack.assets.truncate(1);
+    pack.assets[0].connectors[0].face_size = Some([2.0, 2.5]);
+    pack.assets[0].connectors[1].face_size = Some([2.0, 2.5]);
+    pack.connector_classes.push(ConnectorClass {
+        class: "doorway".to_owned(),
+        display_name: "Door".to_owned(),
+    });
+    pack.compatibility_rules.push(CompatibilityRule {
+        a_class: "doorway".to_owned(),
+        b_class: "wall_edge".to_owned(),
+        rotation: AllowedRotation::Locked,
+    });
+    pack.assets.push(AssetRecord {
+        asset_id: "door_unit".to_owned(),
+        source_path: "door.glb".to_owned(),
+        content_hash: "sha256:d".to_owned(),
+        display_name: "Door".to_owned(),
+        asset_type: AssetType::Model3d,
+        bounds: Bounds3 {
+            min: [-0.4, 0.0, -0.05],
+            max: [0.4, 2.0, 0.05],
+        },
+        dimensions: [0.8, 2.0, 0.1],
+        pivot: Pivot::Origin,
+        up_axis: Axis3::PosY,
+        forward_axis: Axis3::PosZ,
+        semantic_tags: vec![],
+        affordances: vec![],
+        placement_constraints: vec![],
+        review_flags: vec![],
+        connectors: vec![ConnectorRecord {
+            connector_id: "door_front".to_owned(),
+            display_name: "Front".to_owned(),
+            class: "doorway".to_owned(),
+            role: ConnectorRole::Symmetric,
+            frame: ConnectorFrame::Frame3d {
+                position: [0.0, 1.0, 0.05],
+                orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+            },
+            mating_axis: Axis3::PosZ,
+            up_reference: Axis3::PosY,
+            snap_tolerance: 0.01,
+            face_size: Some([0.8, 2.0]), // much smaller than wall face
+        }],
+    });
+
+    let report = propose_assembly_plan(
+        &pack,
+        &ProposeAssemblyOptions {
+            root_asset_id: Some("wall_a".to_owned()),
+            max_pieces: 2,
+            ..ProposeAssemblyOptions::default()
+        },
+    );
+    assert!(
+        report.placed_asset_ids.len() >= 2,
+        "cross-class size mismatch should not block: {:?}",
+        report
+    );
+}
+
+#[test]
 fn reuse_flags_emit_honesty_note_without_duplicate_assets() {
     let pack = pack_with_three_walls();
     let report = propose_assembly_plan(

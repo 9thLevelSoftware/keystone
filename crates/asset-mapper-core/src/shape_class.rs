@@ -159,7 +159,10 @@ pub fn base_class_geometry_first(asset: &AssetRecord) -> String {
             }
         }
         NameHint::Window => {
-            if matches!(family, ShapeFamily::WallSlab | ShapeFamily::Module) {
+            if matches!(
+                family,
+                ShapeFamily::WallSlab | ShapeFamily::Module | ShapeFamily::DoorFrame
+            ) {
                 class = "window_frame".to_owned();
             }
         }
@@ -169,7 +172,12 @@ pub fn base_class_geometry_first(asset: &AssetRecord) -> String {
             }
         }
         NameHint::Wall => {
-            if matches!(family, ShapeFamily::WallSlab | ShapeFamily::Module) {
+            // Named walls stay wall_edge even when the AABB silhouette matches the
+            // thin "door frame" family (common for modular wall panels).
+            if matches!(
+                family,
+                ShapeFamily::WallSlab | ShapeFamily::Module | ShapeFamily::DoorFrame
+            ) {
                 class = "wall_edge".to_owned();
             }
         }
@@ -269,6 +277,11 @@ pub fn class_for_socket_geometry_first(
             return "doorway".to_owned();
         }
         OpeningKind::Window => {
+            // Door-named assets with ambiguous portal height still count as doorways
+            // (mesh face_span often underestimates full opening height).
+            if matches!(hint, NameHint::Door) {
+                return "doorway".to_owned();
+            }
             // Name can refine window vs keep wall if we're unsure; geometry alone → window_frame.
             if matches!(hint, NameHint::Wall) && sock.portal_empty_frac < 0.16 {
                 // weak window on wall stays wall_edge
@@ -349,6 +362,39 @@ mod tests {
         assert_eq!(shape_family_from_bounds(&b), ShapeFamily::DoorFrame);
         let a = dummy_asset(b, "export/item_7.gltf", "item_7");
         assert_eq!(base_class_geometry_first(&a), "doorway");
+    }
+
+    #[test]
+    fn named_wall_overrides_door_frame_silhouette() {
+        // Same proportions as a door-frame AABB, but named as a wall panel.
+        let b = bounds([-1.0, 0.0, -0.1], [1.0, 2.5, 0.1]);
+        assert_eq!(shape_family_from_bounds(&b), ShapeFamily::DoorFrame);
+        let a = dummy_asset(b, "walls/wall_box.glb", "wall_box");
+        assert_eq!(base_class_geometry_first(&a), "wall_edge");
+    }
+
+    #[test]
+    fn door_named_window_opening_promotes_to_doorway() {
+        let b = bounds([-1.0, 0.0, -0.1], [1.0, 2.5, 0.1]);
+        let a = dummy_asset(b, "walls/wall_door.glb", "wall_door");
+        let sock = ProposedSocket {
+            name: "pos_z".to_owned(),
+            position: [0.4, 0.9, 0.1],
+            orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+            mating_axis: Axis3::PosZ,
+            up_reference: Axis3::PosY,
+            score: 2.0,
+            // Underestimated portal span (as mesh sampling often produces).
+            face_span: [0.9, 1.1],
+            source: SocketSource::MeshPortal,
+            portal_empty_frac: 0.18,
+            is_strong_portal: true,
+            suggested_role: crate::schema::ConnectorRole::Symmetric,
+        };
+        assert_eq!(
+            class_for_socket_geometry_first(&a, &sock, "doorway"),
+            "doorway"
+        );
     }
 
     #[test]

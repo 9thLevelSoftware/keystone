@@ -86,7 +86,7 @@ pub fn propose_assembly_plan(
         .root_asset_id
         .clone()
         .filter(|id| assets_with.iter().any(|a| a.asset_id == *id))
-        .unwrap_or_else(|| pick_root(&assets_with));
+        .unwrap_or_else(|| pick_root(&assets_with, &pack.compatibility_rules));
 
     let max_pieces = options.max_pieces.max(1);
     let mut placed: BTreeSet<String> = BTreeSet::new();
@@ -233,7 +233,7 @@ pub fn propose_assembly_plan(
     }
 }
 
-fn pick_root(assets: &[&crate::schema::AssetRecord]) -> String {
+fn pick_root(assets: &[&crate::schema::AssetRecord], rules: &[CompatibilityRule]) -> String {
     // Prefer a full-height straight wall with wall_edge (skip shortwall trims).
     let mut wall_straights: Vec<&&crate::schema::AssetRecord> = assets
         .iter()
@@ -251,19 +251,43 @@ fn pick_root(assets: &[&crate::schema::AssetRecord]) -> String {
     if let Some(a) = wall_straights.first() {
         return a.asset_id.clone();
     }
+
+    // Prefer assets that can mate with at least one *other* asset (avoids lonely
+    // self-rule classes like a single window_frame piece winning on connector count).
     assets
         .iter()
         .max_by_key(|a| {
+            let mate_others = count_mateable_other_assets(a, assets, rules);
             let wall_bonus = a
                 .connectors
                 .iter()
                 .filter(|c| c.class == "wall_edge")
                 .count()
                 * 10;
-            wall_bonus + a.connectors.len()
+            // mate_others dominates so multi-piece roots beat isolated hubs.
+            mate_others * 100 + wall_bonus + a.connectors.len()
         })
         .map(|a| a.asset_id.clone())
         .unwrap_or_default()
+}
+
+/// How many other assets share at least one rule-compatible connector class pair.
+fn count_mateable_other_assets(
+    asset: &crate::schema::AssetRecord,
+    all: &[&crate::schema::AssetRecord],
+    rules: &[CompatibilityRule],
+) -> usize {
+    let classes: BTreeSet<&str> = asset.connectors.iter().map(|c| c.class.as_str()).collect();
+    all.iter()
+        .filter(|other| other.asset_id != asset.asset_id)
+        .filter(|other| {
+            other.connectors.iter().any(|oc| {
+                classes
+                    .iter()
+                    .any(|ac| classes_compatible(rules, ac, &oc.class))
+            })
+        })
+        .count()
 }
 
 fn classes_compatible(rules: &[CompatibilityRule], a: &str, b: &str) -> bool {
@@ -280,6 +304,12 @@ fn size_compatible(
     // Prefer face_size when both connectors publish it. Accept 90° UV swap
     // (mesh faces may publish [u,v] in different axis orders).
     if let (Some(fa), Some(fb)) = (a.face_size, b.face_size) {
+        // Same-class mates: openings should be similar size (door↔door, wall↔wall).
+        // Cross-class structural mates (wall_edge↔doorway, corridor↔wall, …) often
+        // pair a full face with a smaller portal — use face_size only as a soft score.
+        if a.class != b.class {
+            return true;
+        }
         return face_sizes_compatible(fa, fb, options.size_ratio_max);
     }
 
