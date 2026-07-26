@@ -1,25 +1,32 @@
 import { useMemo, useState } from "react";
 
-import { proposeAssembly, resolveAssemblyPlan } from "../tauriApi";
-import type { EditorPackState, ResolvedScene } from "../types";
+import {
+  resolveAssemblyPlan,
+  proposeAssembly,
+  type ResolveErrorReport,
+} from "../tauriApi";
+import type { AssemblyPlan, EditorPackState, ResolvedScene } from "../types";
 
 interface Props {
   state: EditorPackState;
   busy: boolean;
   onScene: (scene: ResolvedScene | null) => void;
   onStatus: (message: string) => void;
+  onSelectConnector?: (assetId: string, connectorId: string | null) => void;
 }
 
-type Mode = "two-piece" | "pack";
+type Mode = "two-piece" | "pack" | "plan";
 
 /**
- * Mate connectors (two-piece debug) or auto-layout a multi-piece pack assembly.
+ * Mate connectors (two-piece debug), auto-layout a multi-piece pack assembly,
+ * or import a plan JSON and resolve with failure guidance.
  */
 export default function AssemblyPreview({
   state,
   busy,
   onScene,
   onStatus,
+  onSelectConnector,
 }: Props) {
   const assetsWithConnectors = useMemo(
     () => state.pack.assets.filter((a) => a.connectors.length > 0),
@@ -31,6 +38,8 @@ export default function AssemblyPreview({
   const [rootId, setRootId] = useState(assetsWithConnectors[0]?.asset_id ?? "");
   const [placedId, setPlacedId] = useState(assetsWithConnectors[1]?.asset_id ?? "");
   const [lastOps, setLastOps] = useState<string[]>([]);
+  const [planJson, setPlanJson] = useState("");
+  const [lastError, setLastError] = useState<ResolveErrorReport | null>(null);
 
   const rootAsset = state.pack.assets.find((a) => a.asset_id === rootId);
   const placedAsset = state.pack.assets.find((a) => a.asset_id === placedId);
@@ -41,6 +50,17 @@ export default function AssemblyPreview({
   const [placedConnectorId, setPlacedConnectorId] = useState(
     placedAsset?.connectors[0]?.connector_id ?? "",
   );
+
+  function applyResolveError(error: ResolveErrorReport) {
+    setLastError(error);
+    onScene(null);
+    if (error.asset_id && onSelectConnector) {
+      onSelectConnector(error.asset_id, error.connector_id ?? null);
+    }
+    onStatus(
+      `Resolve failed [${error.code}] (${error.fix_target}): ${error.guidance}`,
+    );
+  }
 
   async function previewMate() {
     if (!rootAsset || !placedAsset) {
@@ -71,7 +91,14 @@ export default function AssemblyPreview({
           },
         ],
       });
-      onScene(result.scene);
+      if (result.error) {
+        applyResolveError(result.error);
+        return;
+      }
+      setLastError(null);
+      if (result.scene) {
+        onScene(result.scene);
+      }
       setLastOps([
         `${placedId}.${placedConnectorId} → ${rootId}.${rootConnectorId}`,
       ]);
@@ -97,11 +124,21 @@ export default function AssemblyPreview({
         maxPieces,
         rootId || null,
       );
+      if (result.error) {
+        applyResolveError(result.error);
+        const ops = result.report.plan.operations.map(
+          (op) =>
+            `${op.placed_asset_id}.${op.placed_connector_id} → ${op.anchor_asset_id}.${op.anchor_connector_id}`,
+        );
+        setLastOps(ops);
+        return;
+      }
       if (result.scene) {
         onScene(result.scene);
       } else {
         onScene(null);
       }
+      setLastError(null);
       const ops = result.report.plan.operations.map(
         (op) =>
           `${op.placed_asset_id}.${op.placed_connector_id} → ${op.anchor_asset_id}.${op.anchor_connector_id}`,
@@ -120,6 +157,42 @@ export default function AssemblyPreview({
         error instanceof Error
           ? error.message
           : `Pack assembly failed: ${String(error)}`,
+      );
+    }
+  }
+
+  async function resolveImportedPlan() {
+    let plan: AssemblyPlan;
+    try {
+      plan = JSON.parse(planJson) as AssemblyPlan;
+    } catch {
+      onStatus("Plan JSON is not valid JSON.");
+      return;
+    }
+    if (!plan.root_asset_id || !Array.isArray(plan.operations)) {
+      onStatus("Plan must include root_asset_id and operations[].");
+      return;
+    }
+    try {
+      const result = await resolveAssemblyPlan(state, plan);
+      if (result.error) {
+        applyResolveError(result.error);
+        return;
+      }
+      setLastError(null);
+      if (result.scene) {
+        onScene(result.scene);
+      }
+      const ops = plan.operations.map(
+        (op) =>
+          `${op.placed_asset_id}.${op.placed_connector_id} → ${op.anchor_asset_id}.${op.anchor_connector_id}`,
+      );
+      setLastOps(ops);
+      onStatus(`Resolved plan with ${result.scene?.placements.length ?? 0} placement(s).`);
+    } catch (error: unknown) {
+      onScene(null);
+      onStatus(
+        error instanceof Error ? error.message : `Resolve failed: ${String(error)}`,
       );
     }
   }
@@ -156,12 +229,21 @@ export default function AssemblyPreview({
         >
           Two-piece mate
         </button>
+        <button
+          type="button"
+          className={mode === "plan" ? "active" : undefined}
+          disabled={busy}
+          onClick={() => setMode("plan")}
+        >
+          Import plan
+        </button>
       </div>
 
       {mode === "pack" ? (
         <>
           <p className="muted">
             Auto-connect unique kit pieces with the resolver (greedy layout).
+            Each asset_id is used at most once; tile reuse is for external tools.
           </p>
           <label>
             Root asset
@@ -203,7 +285,9 @@ export default function AssemblyPreview({
             </button>
           </div>
         </>
-      ) : (
+      ) : null}
+
+      {mode === "two-piece" ? (
         <>
           <p className="muted">
             Mate two connectors with the resolver for precise debugging.
@@ -281,7 +365,53 @@ export default function AssemblyPreview({
             </button>
           </div>
         </>
-      )}
+      ) : null}
+
+      {mode === "plan" ? (
+        <>
+          <p className="muted">
+            Paste an AssemblyPlan JSON from a vibe builder. On failure, the
+            implicated asset/connector is selected with fix_pack vs fix_plan guidance.
+          </p>
+          <label>
+            Plan JSON
+            <textarea
+              rows={8}
+              value={planJson}
+              onChange={(e) => setPlanJson(e.currentTarget.value)}
+              placeholder='{"root_asset_id":"...","operations":[...]}'
+            />
+          </label>
+          <div className="toolbar">
+            <button
+              type="button"
+              disabled={busy || !planJson.trim()}
+              onClick={() => void resolveImportedPlan()}
+            >
+              Resolve plan
+            </button>
+            <button type="button" disabled={busy} onClick={() => onScene(null)}>
+              Clear assembly
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {lastError ? (
+        <div className="resolve-error-panel" role="alert">
+          <strong>
+            {lastError.code} · {lastError.fix_target}
+          </strong>
+          <p>{lastError.message}</p>
+          <p>{lastError.guidance}</p>
+          {lastError.asset_id ? (
+            <p className="muted">
+              Asset: {lastError.asset_id}
+              {lastError.connector_id ? ` · ${lastError.connector_id}` : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {lastOps.length > 0 && (
         <ul className="assembly-ops muted">

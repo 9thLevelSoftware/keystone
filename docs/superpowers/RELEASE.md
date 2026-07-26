@@ -19,7 +19,11 @@ git push origin v0.2.0
 
 ### Signing
 
-v0.2.x ships **unsigned**. Windows SmartScreen may warn. Code signing is a later trust milestone (P2).
+v0.2.x ships **unsigned**. Windows SmartScreen may warn. Code signing is a later trust milestone (P2). Do **not** commit certificates or signing secrets to this repo.
+
+### Multi-OS
+
+Primary release path is **Windows x64** CLI zip + editor installers. macOS/Linux CLI builds and a multi-OS CI matrix are future work unless already trivial in workflow files; keep docs accurate rather than claiming unsupported platforms.
 
 ## Manual local build (fallback)
 

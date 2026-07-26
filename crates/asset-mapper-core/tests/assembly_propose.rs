@@ -64,11 +64,17 @@ fn pack_with_three_walls() -> PackRecord {
                     role: ConnectorRole::Symmetric,
                     frame: ConnectorFrame::Frame3d {
                         position: [-1.0 + x * 0.0, 1.25, 0.0],
-                        orientation_quat_xyzw: [0.0, 0.70710678, 0.0, 0.70710678],
+                        orientation_quat_xyzw: [
+                            0.0,
+                            std::f32::consts::FRAC_1_SQRT_2,
+                            0.0,
+                            std::f32::consts::FRAC_1_SQRT_2,
+                        ],
                     },
                     mating_axis: Axis3::PosZ,
                     up_reference: Axis3::PosY,
                     snap_tolerance: 0.01,
+                    face_size: None,
                 },
                 ConnectorRecord {
                     connector_id: format!("{id}_pos_x"),
@@ -77,11 +83,17 @@ fn pack_with_three_walls() -> PackRecord {
                     role: ConnectorRole::Symmetric,
                     frame: ConnectorFrame::Frame3d {
                         position: [1.0, 1.25, 0.0],
-                        orientation_quat_xyzw: [0.0, -0.70710678, 0.0, 0.70710678],
+                        orientation_quat_xyzw: [
+                            0.0,
+                            -std::f32::consts::FRAC_1_SQRT_2,
+                            0.0,
+                            std::f32::consts::FRAC_1_SQRT_2,
+                        ],
                     },
                     mating_axis: Axis3::PosZ,
                     up_reference: Axis3::PosY,
                     snap_tolerance: 0.01,
+                    face_size: None,
                 },
             ],
         });
@@ -174,6 +186,206 @@ fn wall_door_cross_rules_from_analyze() {
         door_classes.iter().any(|c| c == "doorway") || has_cross,
         "expected doorway class or cross rule; door classes={door_classes:?} rules={:?}",
         pack.compatibility_rules
+    );
+}
+
+#[test]
+fn pick_root_avoids_lonely_self_rule_class() {
+    // One window-only piece with 2 connectors must not beat a wall that can mate.
+    let mut pack = pack_with_three_walls();
+    pack.assets.push(AssetRecord {
+        asset_id: "lonely_window".to_owned(),
+        source_path: "window.glb".to_owned(),
+        content_hash: "sha256:w".to_owned(),
+        display_name: "Lonely Window".to_owned(),
+        asset_type: AssetType::Model3d,
+        bounds: Bounds3 {
+            min: [-0.5, 1.0, -0.05],
+            max: [0.5, 1.8, 0.05],
+        },
+        dimensions: [1.0, 0.8, 0.1],
+        pivot: Pivot::Origin,
+        up_axis: Axis3::PosY,
+        forward_axis: Axis3::PosZ,
+        semantic_tags: vec![],
+        affordances: vec![],
+        placement_constraints: vec![],
+        review_flags: vec![],
+        connectors: vec![
+            ConnectorRecord {
+                connector_id: "win_a".to_owned(),
+                display_name: "A".to_owned(),
+                class: "window_frame".to_owned(),
+                role: ConnectorRole::Symmetric,
+                frame: ConnectorFrame::Frame3d {
+                    position: [0.0, 1.4, 0.05],
+                    orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                },
+                mating_axis: Axis3::PosZ,
+                up_reference: Axis3::PosY,
+                snap_tolerance: 0.01,
+                face_size: Some([1.0, 0.8]),
+            },
+            ConnectorRecord {
+                connector_id: "win_b".to_owned(),
+                display_name: "B".to_owned(),
+                class: "window_frame".to_owned(),
+                role: ConnectorRole::Symmetric,
+                frame: ConnectorFrame::Frame3d {
+                    position: [0.0, 1.4, -0.05],
+                    orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+                },
+                mating_axis: Axis3::PosZ,
+                up_reference: Axis3::PosY,
+                snap_tolerance: 0.01,
+                face_size: Some([1.0, 0.8]),
+            },
+        ],
+    });
+    pack.connector_classes.push(ConnectorClass {
+        class: "window_frame".to_owned(),
+        display_name: "Window".to_owned(),
+    });
+    pack.compatibility_rules.push(CompatibilityRule {
+        a_class: "window_frame".to_owned(),
+        b_class: "window_frame".to_owned(),
+        rotation: AllowedRotation::Locked,
+    });
+
+    let report = propose_assembly_plan(&pack, &ProposeAssemblyOptions::default());
+    assert_ne!(
+        report.plan.root_asset_id, "lonely_window",
+        "root should not be a class with no multi-asset mates: {:?}",
+        report
+    );
+    assert!(
+        report.placed_asset_ids.len() >= 2,
+        "expected multi-piece plan from walls, got {:?}",
+        report
+    );
+}
+
+#[test]
+fn cross_class_face_size_mismatch_still_mates() {
+    // Full wall face vs smaller doorway portal must still propose an attach.
+    let mut pack = pack_with_three_walls();
+    pack.assets.truncate(1);
+    pack.assets[0].connectors[0].face_size = Some([2.0, 2.5]);
+    pack.assets[0].connectors[1].face_size = Some([2.0, 2.5]);
+    pack.connector_classes.push(ConnectorClass {
+        class: "doorway".to_owned(),
+        display_name: "Door".to_owned(),
+    });
+    pack.compatibility_rules.push(CompatibilityRule {
+        a_class: "doorway".to_owned(),
+        b_class: "wall_edge".to_owned(),
+        rotation: AllowedRotation::Locked,
+    });
+    pack.assets.push(AssetRecord {
+        asset_id: "door_unit".to_owned(),
+        source_path: "door.glb".to_owned(),
+        content_hash: "sha256:d".to_owned(),
+        display_name: "Door".to_owned(),
+        asset_type: AssetType::Model3d,
+        bounds: Bounds3 {
+            min: [-0.4, 0.0, -0.05],
+            max: [0.4, 2.0, 0.05],
+        },
+        dimensions: [0.8, 2.0, 0.1],
+        pivot: Pivot::Origin,
+        up_axis: Axis3::PosY,
+        forward_axis: Axis3::PosZ,
+        semantic_tags: vec![],
+        affordances: vec![],
+        placement_constraints: vec![],
+        review_flags: vec![],
+        connectors: vec![ConnectorRecord {
+            connector_id: "door_front".to_owned(),
+            display_name: "Front".to_owned(),
+            class: "doorway".to_owned(),
+            role: ConnectorRole::Symmetric,
+            frame: ConnectorFrame::Frame3d {
+                position: [0.0, 1.0, 0.05],
+                orientation_quat_xyzw: [0.0, 0.0, 0.0, 1.0],
+            },
+            mating_axis: Axis3::PosZ,
+            up_reference: Axis3::PosY,
+            snap_tolerance: 0.01,
+            face_size: Some([0.8, 2.0]), // much smaller than wall face
+        }],
+    });
+
+    let report = propose_assembly_plan(
+        &pack,
+        &ProposeAssemblyOptions {
+            root_asset_id: Some("wall_a".to_owned()),
+            max_pieces: 2,
+            ..ProposeAssemblyOptions::default()
+        },
+    );
+    assert!(
+        report.placed_asset_ids.len() >= 2,
+        "cross-class size mismatch should not block: {:?}",
+        report
+    );
+}
+
+#[test]
+fn reuse_flags_emit_honesty_note_without_duplicate_assets() {
+    let pack = pack_with_three_walls();
+    let report = propose_assembly_plan(
+        &pack,
+        &ProposeAssemblyOptions {
+            max_pieces: 8,
+            allow_asset_reuse: true,
+            max_instances_per_asset: 4,
+            ..ProposeAssemblyOptions::default()
+        },
+    );
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|n| n.contains("not applied") || n.contains("once")),
+        "expected honesty note, got {:?}",
+        report.notes
+    );
+    let mut ids = report.placed_asset_ids.clone();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(
+        ids.len(),
+        report.placed_asset_ids.len(),
+        "each asset_id at most once: {:?}",
+        report.placed_asset_ids
+    );
+}
+
+#[test]
+fn face_size_accepts_swapped_uv() {
+    // Axis-aligned mate: one edge publishes [2.0, 2.5], the other [2.5, 2.0] (90° UV swap).
+    let mut pack = pack_with_three_walls();
+    for asset in &mut pack.assets {
+        for c in &mut asset.connectors {
+            c.face_size = Some([2.0, 2.0]);
+        }
+    }
+    pack.assets[0].connectors[0].face_size = Some([2.0, 2.4]);
+    pack.assets[1].connectors[0].face_size = Some([2.4, 2.0]);
+    // Without UV-swap tolerance, axis-aligned compare would need ratio 2.4/2.0 = 1.2 on both axes;
+    // with swap, both axes ratio 1.0. Tighten max so swap is required for a match.
+    let report = propose_assembly_plan(
+        &pack,
+        &ProposeAssemblyOptions {
+            max_pieces: 2,
+            size_ratio_max: 1.05,
+            ..ProposeAssemblyOptions::default()
+        },
+    );
+    assert!(
+        report.placed_asset_ids.len() >= 2,
+        "swapped face_size should still mate: {:?}",
+        report
     );
 }
 

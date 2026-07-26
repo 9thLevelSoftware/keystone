@@ -17,6 +17,12 @@ pub struct ProposeAssemblyOptions {
     /// Prefer dimension-compatible face spans (0.7–1.3 default).
     pub size_ratio_min: f32,
     pub size_ratio_max: f32,
+    /// Reserved: the resolver keys placements by `asset_id`, so true multi-instance
+    /// reuse is not supported in a single plan. When true, emit a note directing
+    /// external tools to place N copies of tile-like assets outside Keystone.
+    pub allow_asset_reuse: bool,
+    /// Documented cap for external tile placement (not applied by the core resolver).
+    pub max_instances_per_asset: usize,
 }
 
 impl Default for ProposeAssemblyOptions {
@@ -26,6 +32,8 @@ impl Default for ProposeAssemblyOptions {
             root_asset_id: None,
             size_ratio_min: 0.65,
             size_ratio_max: 1.55,
+            allow_asset_reuse: false,
+            max_instances_per_asset: 1,
         }
     }
 }
@@ -40,13 +48,22 @@ pub struct ProposeAssemblyReport {
 
 /// Build a connected multi-piece plan using existing compatibility rules.
 ///
-/// Each asset is used at most once (kit of unique pieces). Operations are
-/// validated incrementally with [`resolve_plan`].
+/// Each asset is used at most once (kit of unique pieces). The resolver keys
+/// placements by `asset_id`, so multi-instance tile reuse must be done by
+/// external tools. Operations are validated incrementally with [`resolve_plan`].
 pub fn propose_assembly_plan(
     pack: &PackRecord,
     options: &ProposeAssemblyOptions,
 ) -> ProposeAssemblyReport {
     let mut notes = Vec::new();
+    if options.allow_asset_reuse || options.max_instances_per_asset > 1 {
+        notes.push(
+            "Asset reuse is not applied inside propose_assembly: resolve allows each asset_id once. \
+             For tile_edge / floor_edge kits, external tools should place N copies using the same \
+             connectors (see max_instances_per_asset as a soft guidance cap)."
+                .to_owned(),
+        );
+    }
     let assets_with: Vec<_> = pack
         .assets
         .iter()
@@ -69,7 +86,7 @@ pub fn propose_assembly_plan(
         .root_asset_id
         .clone()
         .filter(|id| assets_with.iter().any(|a| a.asset_id == *id))
-        .unwrap_or_else(|| pick_root(&assets_with));
+        .unwrap_or_else(|| pick_root(&assets_with, &pack.compatibility_rules));
 
     let max_pieces = options.max_pieces.max(1);
     let mut placed: BTreeSet<String> = BTreeSet::new();
@@ -216,12 +233,61 @@ pub fn propose_assembly_plan(
     }
 }
 
-fn pick_root(assets: &[&crate::schema::AssetRecord]) -> String {
+fn pick_root(assets: &[&crate::schema::AssetRecord], rules: &[CompatibilityRule]) -> String {
+    // Prefer a full-height straight wall with wall_edge (skip shortwall trims).
+    let mut wall_straights: Vec<&&crate::schema::AssetRecord> = assets
+        .iter()
+        .filter(|a| {
+            let id = a.asset_id.to_ascii_lowercase();
+            id.contains("wall")
+                && id.contains("straight")
+                && !id.contains("short")
+                && !id.contains("bottom")
+                && !id.contains("top")
+                && a.connectors.iter().any(|c| c.class == "wall_edge")
+        })
+        .collect();
+    wall_straights.sort_by_key(|a| std::cmp::Reverse(a.connectors.len()));
+    if let Some(a) = wall_straights.first() {
+        return a.asset_id.clone();
+    }
+
+    // Prefer assets that can mate with at least one *other* asset (avoids lonely
+    // self-rule classes like a single window_frame piece winning on connector count).
     assets
         .iter()
-        .max_by_key(|a| a.connectors.len())
+        .max_by_key(|a| {
+            let mate_others = count_mateable_other_assets(a, assets, rules);
+            let wall_bonus = a
+                .connectors
+                .iter()
+                .filter(|c| c.class == "wall_edge")
+                .count()
+                * 10;
+            // mate_others dominates so multi-piece roots beat isolated hubs.
+            mate_others * 100 + wall_bonus + a.connectors.len()
+        })
         .map(|a| a.asset_id.clone())
         .unwrap_or_default()
+}
+
+/// How many other assets share at least one rule-compatible connector class pair.
+fn count_mateable_other_assets(
+    asset: &crate::schema::AssetRecord,
+    all: &[&crate::schema::AssetRecord],
+    rules: &[CompatibilityRule],
+) -> usize {
+    let classes: BTreeSet<&str> = asset.connectors.iter().map(|c| c.class.as_str()).collect();
+    all.iter()
+        .filter(|other| other.asset_id != asset.asset_id)
+        .filter(|other| {
+            other.connectors.iter().any(|oc| {
+                classes
+                    .iter()
+                    .any(|ac| classes_compatible(rules, ac, &oc.class))
+            })
+        })
+        .count()
 }
 
 fn classes_compatible(rules: &[CompatibilityRule], a: &str, b: &str) -> bool {
@@ -235,6 +301,18 @@ fn size_compatible(
     b: &ConnectorRecord,
     options: &ProposeAssemblyOptions,
 ) -> bool {
+    // Prefer face_size when both connectors publish it. Accept 90° UV swap
+    // (mesh faces may publish [u,v] in different axis orders).
+    if let (Some(fa), Some(fb)) = (a.face_size, b.face_size) {
+        // Same-class mates: openings should be similar size (door↔door, wall↔wall).
+        // Cross-class structural mates (wall_edge↔doorway, corridor↔wall, …) often
+        // pair a full face with a smaller portal — use face_size only as a soft score.
+        if a.class != b.class {
+            return true;
+        }
+        return face_sizes_compatible(fa, fb, options.size_ratio_max);
+    }
+
     // Use snap_tolerance as a weak size proxy when face span unknown; prefer always true
     // if either tolerance is default-small.
     let ta = a.snap_tolerance.max(1e-6);
@@ -244,13 +322,26 @@ fn size_compatible(
     if (ta - tb).abs() < 1e-5 {
         return true;
     }
-    ratio >= options.size_ratio_min && ratio <= options.size_ratio_max * 2.0 || ratio < 3.0
+    (ratio >= options.size_ratio_min && ratio <= options.size_ratio_max * 2.0) || ratio < 3.0
 }
 
 fn pair_score(a: &ConnectorRecord, b: &ConnectorRecord) -> f32 {
     let mut score = 1.0f32;
     if a.class == b.class {
         score += 2.0;
+    }
+    // Prefer modular structural mates over doorway-doorway spam.
+    let structural = |c: &str| c == "wall_edge" || c == "floor_edge" || c == "corridor_end";
+    if structural(&a.class) && structural(&b.class) {
+        score += 1.5;
+    }
+    if (a.class == "wall_edge" && b.class == "doorway")
+        || (a.class == "doorway" && b.class == "wall_edge")
+    {
+        score += 1.25;
+    }
+    if a.class == "doorway" && b.class == "doorway" {
+        score -= 0.5;
     }
     // Prefer horizontal mates (not pos_y heavy) — approximate via position y similarity.
     if let (
@@ -261,7 +352,35 @@ fn pair_score(a: &ConnectorRecord, b: &ConnectorRecord) -> f32 {
         let dy = (pa[1] - pb[1]).abs();
         score += 1.0 / (1.0 + dy);
     }
+    if let (Some(fa), Some(fb)) = (a.face_size, b.face_size) {
+        let (wr, hr) = face_size_ratios(fa, fb);
+        score += 1.0 / (1.0 + (wr - 1.0).abs() + (hr - 1.0).abs());
+    }
     score
+}
+
+/// Ratios are always ≥1 (max/min per axis). Prefer axis-aligned pairing; if that
+/// is worse than a 90° UV swap, return the swapped pair of ratios.
+fn face_size_ratios(a: [f32; 2], b: [f32; 2]) -> (f32, f32) {
+    let wa = a[0].max(1e-6);
+    let ha = a[1].max(1e-6);
+    let wb = b[0].max(1e-6);
+    let hb = b[1].max(1e-6);
+    let direct = (wa.max(wb) / wa.min(wb), ha.max(hb) / ha.min(hb));
+    let swapped = (wa.max(hb) / wa.min(hb), ha.max(wb) / ha.min(wb));
+    // Prefer the orientation with the smaller combined stretch.
+    if direct.0 + direct.1 <= swapped.0 + swapped.1 {
+        direct
+    } else {
+        swapped
+    }
+}
+
+/// `size_ratio_max` is the only bound: ratios are always ≥1, so min is dead.
+fn face_sizes_compatible(a: [f32; 2], b: [f32; 2], size_ratio_max: f32) -> bool {
+    let max_r = size_ratio_max.max(1.0);
+    let (wr, hr) = face_size_ratios(a, b);
+    wr <= max_r && hr <= max_r
 }
 
 /// Build a lookup of class → partner classes from rules (for diagnostics).

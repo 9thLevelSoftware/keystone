@@ -62,6 +62,8 @@ export interface ConnectorRecord {
   mating_axis: Axis3;
   up_reference: Axis3;
   snap_tolerance: number;
+  /** Optional face plane size [width, height] in pack units. */
+  face_size?: [number, number] | null;
 }
 
 export interface AssetRecord {

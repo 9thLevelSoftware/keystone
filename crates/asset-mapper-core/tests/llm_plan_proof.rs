@@ -46,7 +46,7 @@ fn llm_style_plan_rejects_disallowed_rotation() {
 
     assert!(matches!(
         error,
-        ResolveError::RotationChoiceNotAllowed { choice } if (choice - 90.0).abs() < 0.001
+        ResolveError::RotationChoiceNotAllowed { choice, .. } if (choice - 90.0).abs() < 0.001
     ));
 }
 

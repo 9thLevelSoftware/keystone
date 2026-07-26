@@ -106,6 +106,13 @@ fn propose_assembly(
     commands::propose_assembly(state, max_pieces, root_asset_id)
 }
 
+#[tauri::command]
+fn vibe_ready_pack(
+    state: EditorPackState,
+) -> Result<asset_mapper_core::VibeReadinessReport, EditorCommandError> {
+    commands::vibe_ready_pack(state)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -122,6 +129,7 @@ pub fn run() {
             read_pack_asset_bytes,
             resolve_assembly_plan,
             propose_assembly,
+            vibe_ready_pack,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Asset Mapper");

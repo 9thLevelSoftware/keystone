@@ -1,7 +1,8 @@
 use asset_mapper_core::ReviewFlag;
 use asset_mapper_io::{
-    InitPackOptions, accept_hash_drift, apply_measured_bounds, init_pack_folder,
-    measure_asset_bounds, measure_pack_bounds, read_pack_from_input, write_pack_sidecar,
+    InitPackOptions, accept_hash_drift, apply_measured_bounds, extract_fbx_vertices,
+    init_pack_folder, load_mesh_geometry, measure_asset_bounds, measure_pack_bounds,
+    read_pack_from_input, write_pack_sidecar,
 };
 
 /// Minimal triangle GLB (accessor min/max [-0.5,0,0]..[0.5,1,0]), identity node.
@@ -257,6 +258,7 @@ fn accept_hash_drift_updates_hash_keeps_connectors() {
             mating_axis: asset_mapper_core::Axis3::PosZ,
             up_reference: asset_mapper_core::Axis3::PosY,
             snap_tolerance: 0.01,
+            face_size: None,
         });
     loaded
         .pack
@@ -316,6 +318,69 @@ Objects:  {
     assert!((measured.bounds.min[0] - -1.0).abs() < 0.001);
     assert!((measured.bounds.max[1] - 2.0).abs() < 0.001);
     assert!((measured.dimensions[0] - 2.0).abs() < 0.001);
+}
+
+#[test]
+fn extract_ascii_fbx_vertices_respects_cap() {
+    let ascii = r#"
+Objects:  {
+    Geometry: 123, "Geometry::Cube", "Mesh" {
+        Vertices: *9 {
+            a: -1.0,0.0,-1.0,1.0,0.0,-1.0,1.0,2.0,1.0
+        }
+    }
+}
+"#;
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("cube.fbx");
+    std::fs::write(&path, ascii).expect("write fbx");
+
+    let all = extract_fbx_vertices(&path, 100)
+        .expect("ok")
+        .expect("positions");
+    assert_eq!(all.len(), 3);
+    assert!(all.iter().all(|p| p.iter().all(|v| v.is_finite())));
+
+    let capped = extract_fbx_vertices(&path, 2).expect("ok").expect("capped");
+    assert_eq!(capped.len(), 2);
+
+    let mesh = load_mesh_geometry(&path).expect("ok").expect("fbx mesh");
+    assert_eq!(mesh.positions.len(), 3);
+    assert!(mesh.indices.is_none());
+}
+
+#[test]
+fn extract_binary_fbx_float_vertices() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("cube_f.fbx");
+    let vertices = [-1.5f32, 0.0, -0.5, 2.5, 3.0, 1.0, 0.0, 1.0, 0.5];
+    write_minimal_binary_fbx(
+        &path,
+        7400,
+        encode_fbx_float_array_property(&vertices, false),
+    );
+    let positions = extract_fbx_vertices(&path, 10)
+        .expect("ok")
+        .expect("positions");
+    assert_eq!(positions.len(), 3);
+    assert!((positions[0][0] - -1.5).abs() < 0.001);
+}
+
+#[test]
+fn extract_fbx_without_vertices_returns_none() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("empty.fbx");
+    let mut file = Vec::new();
+    file.extend_from_slice(b"Kaydara FBX Binary  \0\x1a\0");
+    file.extend_from_slice(&7400u32.to_le_bytes());
+    let tree = fbx_parent("Objects", vec![fbx_leaf("NotGeometry", 0, Vec::new())]);
+    write_fbx_node_at(&mut file, &tree, false);
+    file.extend_from_slice(&[0u8; 13]);
+    std::fs::write(&path, file).expect("write");
+
+    let positions = extract_fbx_vertices(&path, 100).expect("ok");
+    assert!(positions.is_none());
+    assert!(load_mesh_geometry(&path).expect("ok").is_none());
 }
 
 /// Kaydara binary FBX node draft. EndOffset is patched when written.

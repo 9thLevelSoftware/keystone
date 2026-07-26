@@ -4,12 +4,16 @@ use std::path::Path;
 
 use asset_mapper_core::MeshGeometry;
 
+use crate::bounds::extract_fbx_vertices;
 use crate::error::IoError;
 
 const MAX_VERTICES: usize = 200_000;
 
-/// Load triangle/position samples for glTF, GLB, or OBJ. Returns `Ok(None)` when
-/// the format is unsupported or geometry is empty.
+/// Load triangle/position samples for glTF, GLB, OBJ, or FBX Vertices.
+///
+/// Returns `Ok(None)` when the format is unsupported or geometry is empty.
+/// glTF is preferred for auto-map quality (indexed triangles + scene transforms).
+/// FBX yields a local-space point cloud from `Vertices` arrays (no indices).
 pub fn load_mesh_geometry(path: &Path) -> Result<Option<MeshGeometry>, IoError> {
     let extension = path
         .extension()
@@ -20,8 +24,22 @@ pub fn load_mesh_geometry(path: &Path) -> Result<Option<MeshGeometry>, IoError> 
     match extension.as_str() {
         "glb" | "gltf" => load_gltf_mesh(path),
         "obj" => load_obj_mesh(path),
+        "fbx" => load_fbx_mesh(path),
         _ => Ok(None),
     }
+}
+
+fn load_fbx_mesh(path: &Path) -> Result<Option<MeshGeometry>, IoError> {
+    let Some(positions) = extract_fbx_vertices(path, MAX_VERTICES)? else {
+        return Ok(None);
+    };
+    if positions.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(MeshGeometry {
+        positions,
+        indices: None,
+    }))
 }
 
 fn load_gltf_mesh(path: &Path) -> Result<Option<MeshGeometry>, IoError> {

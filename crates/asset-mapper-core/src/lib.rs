@@ -9,14 +9,16 @@ pub mod mesh_sockets;
 pub mod migrate;
 pub mod resolver;
 pub mod schema;
+pub mod shape_class;
 pub mod suggest;
 pub mod validate;
+pub mod vibe_readiness;
 
 pub use analyze::{AnalyzeOptions, AnalyzeReport, analyze_pack, analyze_pack_with_meshes};
 pub use assembly_propose::{
     ProposeAssemblyOptions, ProposeAssemblyReport, propose_assembly_plan, rule_partner_map,
 };
-pub use bundle::{BundleAsset, BundleConnector, LlmBundle};
+pub use bundle::{BundleAsset, BundleConnector, HOW_TO_PLAN, LlmBundle, PlanContract};
 pub use diagnostics::{Diagnostic, Severity, ValidationReport};
 pub use export::{
     GltfKeystoneExtras, GodotExport, UnityExport, UnrealExport, export_connectors_csv,
@@ -28,10 +30,19 @@ pub use mesh_sockets::{
     propose_sockets_from_mesh,
 };
 pub use migrate::{MigrationError, MigrationReport, migrate_pack, pack_from_legacy_json};
-pub use resolver::{AssetPlacement, ResolveError, ResolvedScene, resolve_plan};
+pub use resolver::{
+    AssetPlacement, MateEndpoints, ResolveError, ResolveErrorReport, ResolveFixTarget,
+    ResolvedScene, resolve_plan,
+};
 pub use schema::*;
+pub use shape_class::{
+    OpeningKind, ShapeFamily, base_class_geometry_first, class_for_socket_geometry_first,
+    name_hint_for_asset, opening_kind_from_portal, shape_family_from_bounds,
+};
 pub use suggest::{
-    FaceSnap, bounds_face_snaps, connector_on_face, duplicate_connector,
-    snap_connector_to_nearest_face, suggest_class_from_name,
+    FaceSnap, SuggestedSemantics, bounds_face_snaps, connector_on_face, duplicate_connector,
+    snap_connector_to_nearest_face, suggest_class_from_asset, suggest_class_from_name,
+    suggest_semantics_for_asset,
 };
 pub use validate::validate_pack;
+pub use vibe_readiness::{VibeChecklistItem, VibeReadinessReport, vibe_readiness};

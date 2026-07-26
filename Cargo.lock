@@ -114,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "asset-mapper-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "asset-mapper-core",
@@ -127,7 +127,7 @@ dependencies = [
 
 [[package]]
 name = "asset-mapper-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "glam",
  "insta",
@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "asset-mapper-editor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "asset-mapper-core",
  "asset-mapper-io",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "asset-mapper-io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "asset-mapper-core",
  "flate2",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "asset-mapper-wasm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "asset-mapper-core",
  "serde",

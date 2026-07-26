@@ -61,6 +61,183 @@ fn measure_fbx(path: &Path) -> Result<Option<MeasuredBounds>, IoError> {
     Ok(None)
 }
 
+/// Extract raw `Vertices` samples from FBX for mesh-socket proposal.
+///
+/// Positions are local-space (no nested transforms). Capped at `max_vertices`.
+/// Prefer glTF when available; FBX yields a point cloud without indices.
+pub fn extract_fbx_vertices(
+    path: &Path,
+    max_vertices: usize,
+) -> Result<Option<Vec<Vec3>>, IoError> {
+    let bytes = std::fs::read(path).map_err(|source| IoError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let max_vertices = max_vertices.max(1);
+
+    if bytes.starts_with(b"Kaydara FBX Binary") {
+        return Ok(collect_fbx_binary_vertices(&bytes, max_vertices));
+    }
+
+    let contents = String::from_utf8_lossy(&bytes);
+    Ok(collect_fbx_ascii_vertices(&contents, max_vertices))
+}
+
+fn collect_fbx_ascii_vertices(contents: &str, max_vertices: usize) -> Option<Vec<Vec3>> {
+    let mut positions = Vec::new();
+    for segment in contents.split("Vertices:") {
+        let Some(brace) = segment.find('{') else {
+            continue;
+        };
+        let after = &segment[brace + 1..];
+        let Some(end) = after.find('}') else {
+            continue;
+        };
+        let body = &after[..end];
+        let mut coords = Vec::new();
+        for token in body.split(|c: char| c == ',' || c.is_whitespace()) {
+            let token = token.trim().trim_end_matches(',');
+            if token.is_empty() {
+                continue;
+            }
+            if let Ok(value) = token.parse::<f32>() {
+                coords.push(value);
+            }
+        }
+        if coords.len() < 3 {
+            continue;
+        }
+        for chunk in coords.chunks_exact(3) {
+            let point = [chunk[0], chunk[1], chunk[2]];
+            if !point.iter().all(|v| v.is_finite()) {
+                continue;
+            }
+            positions.push(point);
+            if positions.len() >= max_vertices {
+                return Some(positions);
+            }
+        }
+    }
+    if positions.is_empty() {
+        None
+    } else {
+        Some(positions)
+    }
+}
+
+fn collect_fbx_binary_vertices(bytes: &[u8], max_vertices: usize) -> Option<Vec<Vec3>> {
+    if bytes.len() < FBX_BINARY_HEADER_LEN || !bytes.starts_with(FBX_BINARY_MAGIC) {
+        return None;
+    }
+    let version = u32::from_le_bytes(bytes[23..27].try_into().ok()?);
+    let large = version >= 7500;
+    let mut positions = Vec::new();
+    let mut cursor = FBX_BINARY_HEADER_LEN;
+    while cursor < bytes.len() && positions.len() < max_vertices {
+        match collect_fbx_binary_node(bytes, &mut cursor, large, 0, &mut positions, max_vertices) {
+            Ok(()) => {}
+            Err(()) => break,
+        }
+    }
+    if positions.is_empty() {
+        None
+    } else {
+        Some(positions)
+    }
+}
+
+fn collect_fbx_binary_node(
+    bytes: &[u8],
+    cursor: &mut usize,
+    large: bool,
+    depth: u32,
+    positions: &mut Vec<Vec3>,
+    max_vertices: usize,
+) -> Result<(), ()> {
+    if depth > FBX_MAX_NODE_DEPTH {
+        return Err(());
+    }
+    let header_size = if large { 25 } else { 13 };
+    let header_end = cursor.checked_add(header_size).ok_or(())?;
+    if header_end > bytes.len() {
+        return Err(());
+    }
+    let (end_offset, num_properties, property_list_len) = if large {
+        let end = usize::try_from(read_u64(bytes, cursor)?).map_err(|_| ())?;
+        let num = usize::try_from(read_u64(bytes, cursor)?).map_err(|_| ())?;
+        let plen = usize::try_from(read_u64(bytes, cursor)?).map_err(|_| ())?;
+        (end, num, plen)
+    } else {
+        let end = read_u32(bytes, cursor)? as usize;
+        let num = read_u32(bytes, cursor)? as usize;
+        let plen = read_u32(bytes, cursor)? as usize;
+        (end, num, plen)
+    };
+    let name_len = *bytes.get(*cursor).ok_or(())? as usize;
+    *cursor = cursor.checked_add(1).ok_or(())?;
+    if end_offset == 0 {
+        return Err(());
+    }
+    let name_end = cursor.checked_add(name_len).ok_or(())?;
+    if name_end > bytes.len() {
+        return Err(());
+    }
+    let name = std::str::from_utf8(&bytes[*cursor..name_end]).unwrap_or("");
+    *cursor = name_end;
+    let props_start = *cursor;
+    let props_end = props_start.checked_add(property_list_len).ok_or(())?;
+    if props_end > bytes.len() {
+        return Err(());
+    }
+    let props = &bytes[props_start..props_end];
+    *cursor = props_end;
+
+    if name == "Vertices" {
+        push_from_fbx_property_list(props, num_properties, positions, max_vertices);
+    }
+
+    while *cursor < end_offset && *cursor < bytes.len() && positions.len() < max_vertices {
+        match collect_fbx_binary_node(bytes, cursor, large, depth + 1, positions, max_vertices) {
+            Ok(()) => {}
+            Err(()) => break,
+        }
+    }
+    if *cursor < end_offset && end_offset <= bytes.len() {
+        *cursor = end_offset;
+    }
+    Ok(())
+}
+
+fn push_from_fbx_property_list(
+    props: &[u8],
+    num_properties: usize,
+    positions: &mut Vec<Vec3>,
+    max_vertices: usize,
+) {
+    let mut offset = 0usize;
+    for _ in 0..num_properties {
+        if positions.len() >= max_vertices {
+            break;
+        }
+        let Some((next, values)) = read_fbx_property_array(props, offset) else {
+            break;
+        };
+        offset = next;
+        if let Some(coords) = values {
+            for chunk in coords.chunks_exact(3) {
+                let point = [chunk[0], chunk[1], chunk[2]];
+                if !point.iter().all(|v| v.is_finite()) {
+                    continue;
+                }
+                positions.push(point);
+                if positions.len() >= max_vertices {
+                    break;
+                }
+            }
+        }
+    }
+}
+
 fn parse_fbx_ascii_vertices(contents: &str) -> Option<MeasuredBounds> {
     let mut min = [f32::INFINITY; 3];
     let mut max = [f32::NEG_INFINITY; 3];

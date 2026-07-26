@@ -2,6 +2,32 @@
 
 All notable changes to Keystone (Asset Mapper) are documented in this file.
 
+## [Unreleased]
+
+### Vibe-ready facilitation
+
+- **Vibe readiness:** `vibe_readiness(pack)` + CLI `asset-mapper vibe-ready` + editor readiness banner (coverage, orphan/dead-end classes, connectivity, score 0–100)
+- **Auto-map quality:** stronger portal/occupancy scoring, junk face filters, lower socket caps, optional `ConnectorRecord.face_size` (no schema version bump), conservative plug/receptacle inset roles
+- **Semantics:** analyze suggests vocabulary-gated semantic tags / affordances / placement constraints from name + class + shape
+- **LLM handoff:** bundle includes `face_size`, `how_to_plan`, `plan_contract`; docs in `docs/user-guide/vibe-builder-handoff.md`
+- **Resolve feedback:** stable error codes + `fix_pack` / `fix_plan` guidance; CLI stderr JSON; editor plan import + highlight on failure
+- **FBX sockets:** load mesh samples from FBX `Vertices` (ASCII/binary) for proposals; glTF still preferred
+- **Fixtures / bake-off:** `scripts/write-vibe-fixtures.mjs`, `fixtures/vibe/`, harness test + `docs/user-guide/bake-off.md`
+- **Tile reuse:** documented unique-asset resolve limit; `propose-assembly --allow-asset-reuse` / `--max-instances-per-asset` emit guidance notes only
+- **WASM:** `vibe_ready_json`; resolve errors return JSON reports
+
+## [Unreleased]
+
+### MegaKit auto-map tune
+
+- **Geometry-first classes** (AABB shape family + strong portal openings); filenames optional soft boost only
+- Portal class promotion only for **strong** portals with solid occupancy (stops doorway monopoly on sci-fi walls)
+- Soft path/name hints when they agree with shape (not required for wall/floor/door)
+- Analyze `--exclude-glob` / skip images by default; modular kit recipe for large packs
+- Vibe-ready: fail on class monopoly; class diversity checklist
+- Assembly root prefers full wall straights; structural mate scoring
+- Bake-off harness: `scripts/bakeoff-megakit.ps1` + docs
+
 ## [0.2.0] — 2026-07-26
 
 Honest-limits completion: load → auto-map → tweak → see the pack connect.
