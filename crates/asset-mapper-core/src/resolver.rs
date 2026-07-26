@@ -47,6 +47,18 @@ pub enum ResolveError {
         connector_id: String,
     },
 
+    #[error("connector `{connector_id}` on asset `{asset_id}` is not a 2D frame")]
+    Non2dConnector {
+        asset_id: String,
+        connector_id: String,
+    },
+
+    #[error("connector frame kinds differ for `{placed_connector_id}` and `{anchor_connector_id}`")]
+    MixedConnectorDimensions {
+        placed_connector_id: String,
+        anchor_connector_id: String,
+    },
+
     #[error("connector classes `{placed_class}` and `{anchor_class}` are incompatible")]
     IncompatibleConnectorClasses {
         placed_class: String,
@@ -64,6 +76,12 @@ pub enum ResolveError {
 
     #[error("connector `{connector_id}` on asset `{asset_id}` has invalid connector orientation")]
     InvalidConnectorOrientation {
+        asset_id: String,
+        connector_id: String,
+    },
+
+    #[error("connector `{connector_id}` on asset `{asset_id}` has a zero-length 2D normal")]
+    Invalid2dNormal {
         asset_id: String,
         connector_id: String,
     },
@@ -117,19 +135,38 @@ pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedSc
         let rotation_choice_deg =
             validate_rotation_choice(&rule.rotation, operation.rotation_choice_deg)?;
 
-        let placed_connector_local = connector_pose(placed_asset, placed_connector)?;
-        let anchor_connector_local = connector_pose(anchor_asset, anchor_connector)?;
-        let anchor_connector_world = anchor_asset_pose.then(anchor_connector_local);
-        let desired_placed_connector_world = desired_connector_world_pose(
-            anchor_asset,
-            anchor_connector,
-            anchor_connector_world,
-            placed_asset,
-            placed_connector,
-            rotation_choice_deg,
-        )?;
-        let placed_asset_world =
-            desired_placed_connector_world.then(placed_connector_local.inverse());
+        let placed_asset_world = match (&placed_connector.frame, &anchor_connector.frame) {
+            (ConnectorFrame::Frame3d { .. }, ConnectorFrame::Frame3d { .. }) => {
+                let placed_connector_local = connector_pose_3d(placed_asset, placed_connector)?;
+                let anchor_connector_local = connector_pose_3d(anchor_asset, anchor_connector)?;
+                let anchor_connector_world = anchor_asset_pose.then(anchor_connector_local);
+                let desired_placed_connector_world = desired_connector_world_pose(
+                    anchor_asset,
+                    anchor_connector,
+                    anchor_connector_world,
+                    placed_asset,
+                    placed_connector,
+                    rotation_choice_deg,
+                )?;
+                desired_placed_connector_world.then(placed_connector_local.inverse())
+            }
+            (ConnectorFrame::Frame2d { .. }, ConnectorFrame::Frame2d { .. }) => {
+                resolve_2d_attachment(
+                    placed_asset,
+                    placed_connector,
+                    anchor_asset,
+                    anchor_connector,
+                    anchor_asset_pose,
+                    rotation_choice_deg,
+                )?
+            }
+            _ => {
+                return Err(ResolveError::MixedConnectorDimensions {
+                    placed_connector_id: placed_connector.connector_id.clone(),
+                    anchor_connector_id: anchor_connector.connector_id.clone(),
+                });
+            }
+        };
 
         placements_by_asset_id.insert(operation.placed_asset_id.clone(), placed_asset_world);
         placements.push(AssetPlacement {
@@ -188,7 +225,10 @@ fn validate_rotation_choice(
             }
         }
         AllowedRotation::StepsDeg { values } => {
-            if values.iter().any(|value| (*value - choice).abs() < 0.001) {
+            if values
+                .iter()
+                .any(|value| angles_nearly_equal_deg(*value, choice))
+            {
                 Ok(choice)
             } else {
                 Err(ResolveError::RotationChoiceNotAllowed { choice })
@@ -198,7 +238,10 @@ fn validate_rotation_choice(
     }
 }
 
-fn connector_pose(asset: &AssetRecord, connector: &ConnectorRecord) -> Result<Pose3, ResolveError> {
+fn connector_pose_3d(
+    asset: &AssetRecord,
+    connector: &ConnectorRecord,
+) -> Result<Pose3, ResolveError> {
     match &connector.frame {
         ConnectorFrame::Frame3d {
             position,
@@ -225,6 +268,100 @@ fn connector_pose(asset: &AssetRecord, connector: &ConnectorRecord) -> Result<Po
             connector_id: connector.connector_id.clone(),
         }),
     }
+}
+
+/// Resolve a 2D Frame2d attachment into a 3D pose on the XY plane (Z = 0).
+///
+/// Normals face each other (placed normal maps to -anchor normal in world),
+/// positions coincide, and `rotation_choice_deg` spins around Z after mating.
+fn resolve_2d_attachment(
+    placed_asset: &AssetRecord,
+    placed_connector: &ConnectorRecord,
+    anchor_asset: &AssetRecord,
+    anchor_connector: &ConnectorRecord,
+    anchor_asset_pose: Pose3,
+    rotation_choice_deg: f32,
+) -> Result<Pose3, ResolveError> {
+    let (placed_pos, placed_normal) = frame_2d_parts(placed_asset, placed_connector)?;
+    let (anchor_pos, anchor_normal) = frame_2d_parts(anchor_asset, anchor_connector)?;
+
+    let anchor_normal_world = rotate_xy(anchor_asset_pose.rotation, anchor_normal);
+    let anchor_pos_world = {
+        let local = Vec3::new(anchor_pos[0], anchor_pos[1], 0.0);
+        (anchor_asset_pose.translation + anchor_asset_pose.rotation * local).truncate()
+    };
+
+    let desired_normal_world = -anchor_normal_world;
+    let placed_angle = normal_angle(placed_normal);
+    let desired_angle = normal_angle(desired_normal_world) + rotation_choice_deg.to_radians();
+    let delta = desired_angle - placed_angle;
+    let rotation = Quat::from_rotation_z(delta);
+
+    let placed_pos_local = Vec3::new(placed_pos[0], placed_pos[1], 0.0);
+    let rotated_local = rotation * placed_pos_local;
+    let translation = Vec3::new(
+        anchor_pos_world.x - rotated_local.x,
+        anchor_pos_world.y - rotated_local.y,
+        0.0,
+    );
+
+    Ok(Pose3 {
+        translation,
+        rotation,
+    })
+}
+
+fn frame_2d_parts(
+    asset: &AssetRecord,
+    connector: &ConnectorRecord,
+) -> Result<([f32; 2], glam::Vec2), ResolveError> {
+    match &connector.frame {
+        ConnectorFrame::Frame2d {
+            position, normal, ..
+        } => {
+            if !position[0].is_finite()
+                || !position[1].is_finite()
+                || !normal[0].is_finite()
+                || !normal[1].is_finite()
+            {
+                return Err(ResolveError::Invalid2dNormal {
+                    asset_id: asset.asset_id.clone(),
+                    connector_id: connector.connector_id.clone(),
+                });
+            }
+            let n = glam::Vec2::new(normal[0], normal[1]);
+            if n.length_squared() <= AXIS_EPSILON {
+                return Err(ResolveError::Invalid2dNormal {
+                    asset_id: asset.asset_id.clone(),
+                    connector_id: connector.connector_id.clone(),
+                });
+            }
+            Ok((*position, n.normalize()))
+        }
+        ConnectorFrame::Frame3d { .. } => Err(ResolveError::Non2dConnector {
+            asset_id: asset.asset_id.clone(),
+            connector_id: connector.connector_id.clone(),
+        }),
+    }
+}
+
+/// Minimal angular distance on the circle, in degrees (0 ≡ 360).
+fn angles_nearly_equal_deg(a: f32, b: f32) -> bool {
+    if !a.is_finite() || !b.is_finite() {
+        return false;
+    }
+    let diff = (a - b).rem_euclid(360.0);
+    let distance = diff.min(360.0 - diff);
+    distance < 0.001
+}
+
+fn rotate_xy(rotation: Quat, v: glam::Vec2) -> glam::Vec2 {
+    let rotated = rotation * Vec3::new(v.x, v.y, 0.0);
+    glam::Vec2::new(rotated.x, rotated.y).normalize_or_zero()
+}
+
+fn normal_angle(normal: glam::Vec2) -> f32 {
+    normal.y.atan2(normal.x)
 }
 
 fn desired_connector_world_pose(

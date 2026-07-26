@@ -78,8 +78,27 @@ export interface AssetRecord {
   semantic_tags: string[];
   affordances: string[];
   placement_constraints: string[];
-  review_flags: string[];
+  review_flags: ReviewFlag[];
   connectors: ConnectorRecord[];
+}
+
+export type ReviewFlag =
+  | "bounds_placeholder"
+  | "orientation_placeholder"
+  | "pivot_placeholder";
+
+export interface PackProvenance {
+  source?: string | null;
+  author?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+}
+
+export interface ControlledVocabulary {
+  semantic_tags: string[];
+  affordances: string[];
+  placement_constraints: string[];
+  allow_namespaced_extensions: boolean;
 }
 
 export interface PackRecord {
@@ -92,6 +111,9 @@ export interface PackRecord {
     forward_axis: Axis3;
   };
   default_units: "meters" | "centimeters" | "pixels";
+  license_summary: string;
+  provenance: PackProvenance;
+  vocabulary: ControlledVocabulary;
   connector_classes: ConnectorClass[];
   compatibility_rules: CompatibilityRule[];
   assets: AssetRecord[];
@@ -137,6 +159,16 @@ export interface SaveEditorResult {
 
 export interface ExportEditorResult {
   outputPath: string;
+}
+
+export interface MeasureEditorResult {
+  report: {
+    sidecar_path: string;
+    measured: string[];
+    failed: string[];
+    missing: string[];
+  };
+  state: EditorPackState;
 }
 
 export interface EditorCommandError {

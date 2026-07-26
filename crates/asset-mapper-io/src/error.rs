@@ -58,4 +58,16 @@ pub enum IoError {
 
     #[error("failed to serialize pack JSON: {0}")]
     SerializeJson(serde_json::Error),
+
+    #[error("failed to measure bounds for `{path}`: {message}")]
+    MeasureBounds { path: PathBuf, message: String },
+
+    #[error("asset `{asset_id}` was not found in the pack")]
+    UnknownAsset { asset_id: String },
+
+    #[error("no drifted assets matched the accept-drift request")]
+    NoDriftedAssets,
+
+    #[error("schema migration failed: {0}")]
+    Migration(String),
 }

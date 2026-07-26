@@ -5,8 +5,9 @@ use asset_mapper_core::{
     LlmBundle, PackRecord, Severity, ValidationReport, validate_pack as validate_core_pack,
 };
 use asset_mapper_io::{
-    canonical_sidecar_path, index_pack_folder as io_index_pack_folder,
-    init_pack_folder as io_init_pack_folder, read_pack_from_input, scan_assets,
+    accept_hash_drift as io_accept_hash_drift, canonical_sidecar_path,
+    index_pack_folder as io_index_pack_folder, init_pack_folder as io_init_pack_folder,
+    measure_pack_bounds as io_measure_pack_bounds, read_pack_from_input, scan_assets,
     validate_pack_sources, write_pack_sidecar,
 };
 
@@ -99,6 +100,30 @@ pub fn export_bundle(
     Ok(ExportEditorResult {
         output_path: output_path.as_ref().to_string_lossy().into_owned(),
     })
+}
+
+pub fn accept_hash_drift(
+    path: impl AsRef<Path>,
+    assets: Vec<String>,
+) -> Result<IndexEditorResult, EditorCommandError> {
+    let pack_root = canonicalize_existing_path(path)?;
+    let filter = if assets.is_empty() {
+        None
+    } else {
+        Some(assets)
+    };
+    let report = io_accept_hash_drift(&pack_root, filter, false)?;
+    let state = open_pack_folder(&pack_root)?;
+    Ok(IndexEditorResult { report, state })
+}
+
+pub fn measure_pack_bounds(
+    path: impl AsRef<Path>,
+) -> Result<crate::dto::MeasureEditorResult, EditorCommandError> {
+    let pack_root = canonicalize_existing_path(path)?;
+    let report = io_measure_pack_bounds(&pack_root)?;
+    let state = open_pack_folder(&pack_root)?;
+    Ok(crate::dto::MeasureEditorResult { report, state })
 }
 
 fn state_from_pack(

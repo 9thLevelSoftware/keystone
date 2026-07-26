@@ -2,11 +2,15 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use asset_mapper_core::{AssemblyPlan, LlmBundle, resolve_plan, validate_pack};
-use asset_mapper_io::{
-    PackInputKind, index_pack_folder, init_pack_folder, read_pack_from_input, validate_pack_sources,
+use asset_mapper_core::{
+    AssemblyPlan, LlmBundle, export_connectors_csv, export_godot, export_unity, export_unreal,
+    gltf_keystone_extras, resolve_plan, validate_pack,
 };
-use clap::{Parser, Subcommand};
+use asset_mapper_io::{
+    PackInputKind, accept_hash_drift, index_pack_folder, init_pack_folder, measure_pack_bounds,
+    migrate_pack_input, read_pack_from_input, validate_pack_sources,
+};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(name = "asset-mapper")]
@@ -14,6 +18,14 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+enum EngineTarget {
+    Unreal,
+    Unity,
+    Godot,
+    Csv,
 }
 
 #[derive(Debug, Subcommand)]
@@ -35,6 +47,38 @@ enum Commands {
     Resolve {
         pack: PathBuf,
         plan: PathBuf,
+    },
+    /// Accept content-hash drift after review (update hashes; keep connectors by default).
+    AcceptDrift {
+        folder: PathBuf,
+        /// Limit to specific asset ids or source paths (repeatable).
+        #[arg(long = "asset")]
+        assets: Vec<String>,
+        /// Clear connectors when accepting drift (default: keep connectors).
+        #[arg(long, default_value_t = false)]
+        clear_connectors: bool,
+    },
+    /// Re-measure mesh/image bounds and clear BoundsPlaceholder flags.
+    MeasureBounds {
+        folder: PathBuf,
+    },
+    /// Migrate pack sidecar to the current schema version.
+    Migrate {
+        pack: PathBuf,
+    },
+    /// Export engine-friendly connector/rule tables.
+    ExportEngine {
+        pack: PathBuf,
+        #[arg(long, value_enum)]
+        target: EngineTarget,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Write glTF Keystone extras companion JSON (`*.keystone.json`).
+    ExportGltfExtras {
+        pack: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -91,7 +135,87 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&scene)?);
             Ok(ExitCode::SUCCESS)
         }
+        Commands::AcceptDrift {
+            folder,
+            assets,
+            clear_connectors,
+        } => {
+            let asset_filter = if assets.is_empty() {
+                None
+            } else {
+                Some(assets)
+            };
+            let report = accept_hash_drift(folder, asset_filter, clear_connectors)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::MeasureBounds { folder } => {
+            let report = measure_pack_bounds(folder)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Migrate { pack } => {
+            let report = migrate_pack_input(pack)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::ExportEngine {
+            pack,
+            target,
+            output,
+        } => {
+            let loaded = read_pack_from_input(pack)?;
+            let body = match target {
+                EngineTarget::Unreal => serde_json::to_string_pretty(&export_unreal(&loaded.pack))?,
+                EngineTarget::Unity => serde_json::to_string_pretty(&export_unity(&loaded.pack))?,
+                EngineTarget::Godot => serde_json::to_string_pretty(&export_godot(&loaded.pack))?,
+                EngineTarget::Csv => export_connectors_csv(&loaded.pack),
+            };
+            write_or_print(output, body)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::ExportGltfExtras { pack, output } => {
+            let loaded = read_pack_from_input(&pack)?;
+            let extras = gltf_keystone_extras(&loaded.pack);
+            let body = serde_json::to_string_pretty(&extras)?;
+            let output = match output {
+                Some(path) => path,
+                None => {
+                    // Default companion path next to sidecar or pack root.
+                    if let Some(root) = loaded.resolved.pack_root {
+                        root.join(format!("{}.keystone.json", loaded.pack.pack_id))
+                    } else {
+                        PathBuf::from(format!("{}.keystone.json", loaded.pack.pack_id))
+                    }
+                }
+            };
+            fs::write(&output, format!("{body}\n"))?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "output_path": output.to_string_lossy(),
+                    "schema": extras.schema,
+                    "pack_id": extras.pack_id,
+                })
+            );
+            Ok(ExitCode::SUCCESS)
+        }
     }
+}
+
+fn write_or_print(output: Option<PathBuf>, body: String) -> Result<(), Box<dyn std::error::Error>> {
+    match output {
+        Some(path) => {
+            let content = if body.ends_with('\n') {
+                body
+            } else {
+                format!("{body}\n")
+            };
+            fs::write(path, content)?;
+        }
+        None => println!("{body}"),
+    }
+    Ok(())
 }
 
 fn read_plan(path: PathBuf) -> Result<AssemblyPlan, Box<dyn std::error::Error>> {

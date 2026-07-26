@@ -4,7 +4,9 @@ pub mod commands;
 pub mod dto;
 pub mod error;
 
-use dto::{EditorPackState, ExportEditorResult, IndexEditorResult, SaveEditorResult};
+use dto::{
+    EditorPackState, ExportEditorResult, IndexEditorResult, MeasureEditorResult, SaveEditorResult,
+};
 use error::EditorCommandError;
 
 #[tauri::command]
@@ -45,6 +47,19 @@ fn export_bundle(
     commands::export_bundle(state, PathBuf::from(output_path))
 }
 
+#[tauri::command]
+fn accept_hash_drift(
+    path: String,
+    assets: Vec<String>,
+) -> Result<IndexEditorResult, EditorCommandError> {
+    commands::accept_hash_drift(PathBuf::from(path), assets)
+}
+
+#[tauri::command]
+fn measure_pack_bounds(path: String) -> Result<MeasureEditorResult, EditorCommandError> {
+    commands::measure_pack_bounds(PathBuf::from(path))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -55,6 +70,8 @@ pub fn run() {
             save_pack,
             validate_pack,
             export_bundle,
+            accept_hash_drift,
+            measure_pack_bounds,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Asset Mapper");

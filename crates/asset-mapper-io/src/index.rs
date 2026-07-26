@@ -2,11 +2,13 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use asset_mapper_core::{
-    AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION, CoordinateConvention,
-    Handedness, PackRecord, Pivot, ReviewFlag, Unit, hash::sha256_file,
+    AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION, ControlledVocabulary,
+    CoordinateConvention, Handedness, PackProvenance, PackRecord, Pivot, ReviewFlag, Unit,
+    hash::sha256_file,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::bounds::measure_asset_bounds;
 use crate::error::IoError;
 use crate::sidecar::{canonical_sidecar_path, read_pack_from_input, write_pack_sidecar};
 
@@ -52,13 +54,22 @@ pub fn init_pack_folder(
     let pack = PackRecord {
         schema_version: CURRENT_SCHEMA_VERSION,
         pack_id,
-        display_name,
+        display_name: display_name.clone(),
         coordinate_convention: CoordinateConvention {
             handedness: Handedness::Right,
             up_axis: Axis3::PosY,
             forward_axis: Axis3::PosZ,
         },
         default_units: Unit::Meters,
+        license_summary: "UNSPECIFIED — set license_summary before distributing this pack"
+            .to_owned(),
+        provenance: PackProvenance {
+            source: Some(pack_root.display().to_string()),
+            author: None,
+            created_at: None,
+            notes: Some(format!("Initialized pack `{display_name}`")),
+        },
+        vocabulary: ControlledVocabulary::default(),
         connector_classes: Vec::new(),
         compatibility_rules: Vec::new(),
         assets,
@@ -206,30 +217,242 @@ fn scan_dir(
 }
 
 fn placeholder_asset(indexed: &IndexedAsset, used_asset_ids: &mut HashSet<String>) -> AssetRecord {
+    let measured = measure_asset_bounds(&indexed.absolute_path).ok().flatten();
+
+    let (bounds, dimensions, review_flags) = if let Some(measured) = measured {
+        (
+            measured.bounds,
+            measured.dimensions,
+            vec![
+                ReviewFlag::OrientationPlaceholder,
+                ReviewFlag::PivotPlaceholder,
+            ],
+        )
+    } else {
+        (
+            Bounds3 {
+                min: [-0.5, -0.5, -0.5],
+                max: [0.5, 0.5, 0.5],
+            },
+            [1.0, 1.0, 1.0],
+            vec![
+                ReviewFlag::BoundsPlaceholder,
+                ReviewFlag::OrientationPlaceholder,
+                ReviewFlag::PivotPlaceholder,
+            ],
+        )
+    };
+
     AssetRecord {
         asset_id: unique_asset_id(&indexed.source_path, used_asset_ids),
         source_path: indexed.source_path.clone(),
         content_hash: indexed.content_hash.clone(),
         display_name: display_name_from_source_path(&indexed.source_path),
         asset_type: indexed.asset_type.clone(),
-        bounds: Bounds3 {
-            min: [-0.5, -0.5, -0.5],
-            max: [0.5, 0.5, 0.5],
-        },
-        dimensions: [1.0, 1.0, 1.0],
+        bounds,
+        dimensions,
         pivot: Pivot::Origin,
         up_axis: Axis3::PosY,
         forward_axis: Axis3::PosZ,
         semantic_tags: Vec::new(),
         affordances: Vec::new(),
         placement_constraints: Vec::new(),
-        review_flags: vec![
-            ReviewFlag::BoundsPlaceholder,
-            ReviewFlag::OrientationPlaceholder,
-            ReviewFlag::PivotPlaceholder,
-        ],
+        review_flags,
         connectors: Vec::new(),
     }
+}
+
+/// Re-measure bounds from the source file and clear `BoundsPlaceholder` when successful.
+pub fn apply_measured_bounds(
+    asset: &mut AssetRecord,
+    absolute_path: &Path,
+) -> Result<bool, IoError> {
+    let Some(measured) = measure_asset_bounds(absolute_path)? else {
+        return Ok(false);
+    };
+    asset.bounds = measured.bounds;
+    asset.dimensions = measured.dimensions;
+    asset
+        .review_flags
+        .retain(|flag| *flag != ReviewFlag::BoundsPlaceholder);
+    Ok(true)
+}
+
+/// Accept content-hash drift for one or more assets after human review.
+///
+/// Updates `content_hash` from the current on-disk file. Connectors and other
+/// authored metadata are preserved unless `clear_connectors` is true.
+pub fn accept_hash_drift(
+    pack_root: impl AsRef<Path>,
+    asset_ids: Option<Vec<String>>,
+    clear_connectors: bool,
+) -> Result<IndexReport, IoError> {
+    let pack_root = pack_root.as_ref();
+    let mut loaded = read_pack_from_input(pack_root)?;
+    let indexed = scan_assets(pack_root)?;
+    let indexed_by_source = indexed
+        .iter()
+        .map(|asset| (asset.source_path.clone(), asset))
+        .collect::<BTreeMap<_, _>>();
+
+    let filter: Option<HashSet<String>> =
+        asset_ids.map(|ids| ids.into_iter().collect::<HashSet<_>>());
+
+    if let Some(filter) = &filter {
+        let any_known =
+            loaded.pack.assets.iter().any(|asset| {
+                filter.contains(&asset.asset_id) || filter.contains(&asset.source_path)
+            });
+        if !any_known {
+            let unknown = filter
+                .iter()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| "<empty>".to_owned());
+            return Err(IoError::UnknownAsset { asset_id: unknown });
+        }
+    }
+
+    let mut accepted = Vec::new();
+    for asset in &mut loaded.pack.assets {
+        if let Some(filter) = &filter {
+            if !filter.contains(&asset.asset_id) && !filter.contains(&asset.source_path) {
+                continue;
+            }
+        }
+
+        let Some(indexed_asset) = indexed_by_source.get(&asset.source_path) else {
+            continue;
+        };
+        if indexed_asset.content_hash == asset.content_hash {
+            continue;
+        }
+
+        asset.content_hash = indexed_asset.content_hash.clone();
+        if clear_connectors {
+            asset.connectors.clear();
+        }
+        // Re-measure bounds after content change when possible.
+        let _ = apply_measured_bounds(asset, &indexed_asset.absolute_path);
+        accepted.push(asset.source_path.clone());
+    }
+
+    if accepted.is_empty() {
+        return Err(IoError::NoDriftedAssets);
+    }
+
+    write_pack_sidecar(pack_root, &loaded.pack)?;
+
+    // Reconcile report after write for callers that want full status.
+    let report = index_pack_folder_report_only(pack_root, &loaded.pack, &indexed)?;
+    Ok(IndexReport {
+        sidecar_path: canonical_sidecar_path(pack_root)
+            .to_string_lossy()
+            .into_owned(),
+        discovered_assets: report.discovered_assets,
+        new_assets: report.new_assets,
+        unchanged_assets: report.unchanged_assets,
+        drifted_assets: report.drifted_assets,
+        missing_assets: report.missing_assets,
+    })
+}
+
+fn index_pack_folder_report_only(
+    pack_root: &Path,
+    pack: &PackRecord,
+    indexed: &[IndexedAsset],
+) -> Result<IndexReport, IoError> {
+    let indexed_by_source = indexed
+        .iter()
+        .map(|asset| (asset.source_path.clone(), asset))
+        .collect::<BTreeMap<_, _>>();
+    let existing_sources = pack
+        .assets
+        .iter()
+        .map(|asset| asset.source_path.clone())
+        .collect::<BTreeSet<_>>();
+
+    let mut unchanged_assets = Vec::new();
+    let mut drifted_assets = Vec::new();
+    let mut missing_assets = Vec::new();
+    let mut new_assets = Vec::new();
+
+    for asset in &pack.assets {
+        match indexed_by_source.get(&asset.source_path) {
+            Some(indexed_asset) if indexed_asset.content_hash == asset.content_hash => {
+                unchanged_assets.push(asset.source_path.clone());
+            }
+            Some(_) => drifted_assets.push(asset.source_path.clone()),
+            None => missing_assets.push(asset.source_path.clone()),
+        }
+    }
+    for indexed_asset in indexed {
+        if !existing_sources.contains(&indexed_asset.source_path) {
+            new_assets.push(indexed_asset.source_path.clone());
+        }
+    }
+
+    Ok(IndexReport {
+        sidecar_path: canonical_sidecar_path(pack_root)
+            .to_string_lossy()
+            .into_owned(),
+        discovered_assets: sorted_sources(indexed.iter().map(|a| a.source_path.clone())),
+        new_assets: sorted_sources(new_assets),
+        unchanged_assets: sorted_sources(unchanged_assets),
+        drifted_assets: sorted_sources(drifted_assets),
+        missing_assets: sorted_sources(missing_assets),
+    })
+}
+
+/// Outcome of measuring bounds for every pack asset that has a source file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeasureBoundsReport {
+    pub sidecar_path: String,
+    /// Source paths where real bounds were written and `BoundsPlaceholder` cleared.
+    pub measured: Vec<String>,
+    /// Source paths present on disk but not measurable (e.g. FBX, empty mesh).
+    pub failed: Vec<String>,
+    /// Sidecar assets with no on-disk source (or skipped).
+    pub missing: Vec<String>,
+}
+
+/// Measure bounds for every asset in the pack that has a readable source file.
+pub fn measure_pack_bounds(pack_root: impl AsRef<Path>) -> Result<MeasureBoundsReport, IoError> {
+    let pack_root = pack_root.as_ref();
+    let mut loaded = read_pack_from_input(pack_root)?;
+    let indexed = scan_assets(pack_root)?;
+    let indexed_by_source = indexed
+        .iter()
+        .map(|asset| (asset.source_path.clone(), asset))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut measured = Vec::new();
+    let mut failed = Vec::new();
+    let mut missing = Vec::new();
+
+    for asset in &mut loaded.pack.assets {
+        match indexed_by_source.get(&asset.source_path) {
+            Some(indexed_asset) => {
+                // Per-asset errors (corrupt glTF, unreadable file) must not abort
+                // the pack: classify as failed and continue so siblings still measure.
+                match apply_measured_bounds(asset, &indexed_asset.absolute_path) {
+                    Ok(true) => measured.push(asset.source_path.clone()),
+                    Ok(false) | Err(_) => failed.push(asset.source_path.clone()),
+                }
+            }
+            None => missing.push(asset.source_path.clone()),
+        }
+    }
+
+    write_pack_sidecar(pack_root, &loaded.pack)?;
+    Ok(MeasureBoundsReport {
+        sidecar_path: canonical_sidecar_path(pack_root)
+            .to_string_lossy()
+            .into_owned(),
+        measured: sorted_sources(measured),
+        failed: sorted_sources(failed),
+        missing: sorted_sources(missing),
+    })
 }
 
 fn is_supported_asset_file(path: &Path) -> bool {

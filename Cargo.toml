@@ -4,6 +4,7 @@ members = [
     "crates/asset-mapper-io",
     "crates/asset-mapper-cli",
     "crates/asset-mapper-editor/src-tauri",
+    "crates/asset-mapper-wasm",
 ]
 resolver = "2"
 
@@ -16,6 +17,7 @@ rust-version = "1.85"
 assert_cmd = "2"
 clap = { version = "4", features = ["derive"] }
 glam = { version = "0.33", features = ["serde"] }
+gltf = "1.4"
 insta = { version = "1", features = ["json"] }
 predicates = "3"
 proptest = "1"

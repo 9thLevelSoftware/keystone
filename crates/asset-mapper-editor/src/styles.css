@@ -37,6 +37,45 @@ button:disabled {
   opacity: 0.5;
 }
 
+.pack-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #334155;
+}
+
+.pack-settings h2,
+.pack-settings h3 {
+  margin: 8px 0 0;
+  font-size: 0.95rem;
+}
+
+.pack-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+.pack-settings .checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.pack-settings input,
+.pack-settings textarea,
+.pack-settings select {
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .editor-shell {
   display: grid;
   grid-template-columns: 280px minmax(420px, 1fr) 360px;
@@ -268,6 +307,59 @@ select {
   margin-bottom: 8px;
 }
 
-.class-row {
+.rule-block {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.class-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  grid-template-columns: none;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
+.inline-action {
+  margin-left: 8px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.diagnostic-item {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0;
+}
+
+.diagnostics-list li {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+h3 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  color: #94a3b8;
 }

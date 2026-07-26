@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "pack_id": "phase0_invalid_unknown_class",
   "display_name": "Invalid Unknown Class Fixture",
   "coordinate_convention": {
@@ -23,16 +23,34 @@
       "display_name": "Bad Corridor",
       "asset_type": "model3d",
       "bounds": {
-        "min": [-1.0, 0.0, -1.0],
-        "max": [1.0, 2.0, 1.0]
+        "min": [
+          -1.0,
+          0.0,
+          -1.0
+        ],
+        "max": [
+          1.0,
+          2.0,
+          1.0
+        ]
       },
-      "dimensions": [2.0, 2.0, 2.0],
+      "dimensions": [
+        2.0,
+        2.0,
+        2.0
+      ],
       "pivot": "base_center",
       "up_axis": "pos_y",
       "forward_axis": "pos_z",
-      "semantic_tags": ["corridor"],
-      "affordances": ["walkable"],
-      "placement_constraints": ["upright_only"],
+      "semantic_tags": [
+        "corridor"
+      ],
+      "affordances": [
+        "walkable"
+      ],
+      "placement_constraints": [
+        "upright_only"
+      ],
       "connectors": [
         {
           "connector_id": "front",
@@ -41,8 +59,17 @@
           "role": "symmetric",
           "frame": {
             "kind": "frame3d",
-            "position": [0.0, 0.0, 1.0],
-            "orientation_quat_xyzw": [0.0, 0.0, 0.0, 1.0]
+            "position": [
+              0.0,
+              0.0,
+              1.0
+            ],
+            "orientation_quat_xyzw": [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ]
           },
           "mating_axis": "pos_z",
           "up_reference": "pos_y",
@@ -50,5 +77,50 @@
         }
       ]
     }
-  ]
+  ],
+  "license_summary": "MIT OR Apache-2.0 \u2014 test fixture",
+  "provenance": {
+    "notes": "Phase fixture pack",
+    "source": "fixtures"
+  },
+  "vocabulary": {
+    "semantic_tags": [
+      "wall",
+      "floor",
+      "corner",
+      "door",
+      "window",
+      "walkable",
+      "cover",
+      "decorative",
+      "hazard",
+      "lootable",
+      "entry",
+      "exit",
+      "corridor",
+      "roof",
+      "prop"
+    ],
+    "affordances": [
+      "block_movement",
+      "climbable",
+      "interactable",
+      "light_source",
+      "openable",
+      "provide_cover",
+      "sittable",
+      "walkable"
+    ],
+    "placement_constraints": [
+      "ceiling_mounted",
+      "grounded",
+      "indoor_only",
+      "outdoor_only",
+      "requires_floor",
+      "requires_wall",
+      "upright_only",
+      "wall_mounted"
+    ],
+    "allow_namespaced_extensions": true
+  }
 }

@@ -4,6 +4,9 @@ use crate::schema::PackRecord;
 pub struct LlmBundle {
     pub pack_id: String,
     pub display_name: String,
+    pub license_summary: String,
+    pub provenance: crate::schema::PackProvenance,
+    pub vocabulary: crate::schema::ControlledVocabulary,
     pub assets: Vec<BundleAsset>,
     pub compatibility_rules: Vec<crate::schema::CompatibilityRule>,
 }
@@ -33,6 +36,9 @@ impl LlmBundle {
         Self {
             pack_id: pack.pack_id.clone(),
             display_name: pack.display_name.clone(),
+            license_summary: pack.license_summary.clone(),
+            provenance: pack.provenance.clone(),
+            vocabulary: pack.vocabulary.clone(),
             assets: pack
                 .assets
                 .iter()

@@ -44,3 +44,10 @@ pub struct SaveEditorResult {
 pub struct ExportEditorResult {
     pub output_path: String,
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeasureEditorResult {
+    pub report: asset_mapper_io::MeasureBoundsReport,
+    pub state: EditorPackState,
+}

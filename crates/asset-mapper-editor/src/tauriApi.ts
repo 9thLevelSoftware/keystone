@@ -5,6 +5,7 @@ import type {
   EditorPackState,
   ExportEditorResult,
   IndexEditorResult,
+  MeasureEditorResult,
   SaveEditorResult,
   ValidationReport,
 } from "./types";
@@ -51,4 +52,15 @@ export function exportBundle(
   outputPath: string,
 ): Promise<ExportEditorResult> {
   return invoke("export_bundle", { state, outputPath });
+}
+
+export function acceptHashDrift(
+  path: string,
+  assets: string[],
+): Promise<IndexEditorResult> {
+  return invoke("accept_hash_drift", { path, assets });
+}
+
+export function measurePackBounds(path: string): Promise<MeasureEditorResult> {
+  return invoke("measure_pack_bounds", { path });
 }
