@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import AssemblyPreview from "./components/AssemblyPreview";
 import AssetList from "./components/AssetList";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import Inspector from "./components/Inspector";
@@ -8,6 +9,7 @@ import Viewport from "./components/Viewport";
 import { selectAsset, selectConnector } from "./editorState";
 import {
   acceptHashDrift,
+  analyzePackFolder,
   chooseBundleOutputPath,
   choosePackFolder,
   exportBundle,
@@ -18,7 +20,7 @@ import {
   savePack,
   validatePack,
 } from "./tauriApi";
-import type { EditorCommandError, EditorPackState } from "./types";
+import type { EditorCommandError, EditorPackState, ResolvedScene } from "./types";
 
 function errorMessage(error: unknown): string {
   if (typeof error === "object" && error && "message" in error) {
@@ -30,8 +32,9 @@ function errorMessage(error: unknown): string {
 
 export default function App() {
   const [state, setState] = useState<EditorPackState | null>(null);
-  const [status, setStatus] = useState("No pack open.");
+  const [status, setStatus] = useState("No pack open. Open or Init a pack, then Analyze.");
   const [busy, setBusy] = useState(false);
+  const [assemblyScene, setAssemblyScene] = useState<ResolvedScene | null>(null);
 
   const selectedAsset = useMemo(
     () =>
@@ -88,6 +91,7 @@ export default function App() {
 
             const opened = await openPackFolder(folder);
             setState(opened);
+            setAssemblyScene(null);
             setStatus(`Opened ${opened.pack.display_name}.`);
           })
         }
@@ -130,7 +134,10 @@ export default function App() {
               null,
             );
             setState(initialized);
-            setStatus(`Initialized ${initialized.pack.display_name}.`);
+            setAssemblyScene(null);
+            setStatus(
+              `Initialized ${initialized.pack.display_name}. Click Analyze to propose connectors.`,
+            );
           })
         }
         onIndex={() =>
@@ -147,6 +154,28 @@ export default function App() {
             setState(result.state);
             setStatus(
               `Indexed pack: ${result.report.new_assets.length} new, ${result.report.drifted_assets.length} drifted.`,
+            );
+          })
+        }
+        onAnalyze={() =>
+          runAction("Analyzing pack", async () => {
+            if (!state) {
+              return;
+            }
+            if (!confirmIfDirty()) {
+              setStatus("Analyze cancelled (unsaved changes kept).");
+              return;
+            }
+            const replace = window.confirm(
+              "Replace existing connectors on assets that already have them?\n\nOK = replace all\nCancel = only fill empty assets",
+            );
+            const result = await analyzePackFolder(state.packRoot, replace);
+            setState(result.state);
+            setAssemblyScene(null);
+            setStatus(
+              `Analyze: +${result.report.connectors_added} connectors, ` +
+                `+${result.report.classes_added} classes, +${result.report.rules_added} rules. ` +
+                (result.report.notes[0] ?? ""),
             );
           })
         }
@@ -180,14 +209,22 @@ export default function App() {
         }
         onSelectAsset={(assetId) => {
           if (state) {
+            setAssemblyScene(null);
             setState(selectAsset(state, assetId));
           }
         }}
       />
       <div className="editor-main-column">
         {state ? <PackCompletenessBanner state={state} /> : null}
-        <Viewport state={state} selectedAsset={selectedAsset} onStateChange={setState} />
+        <Viewport
+          state={state}
+          selectedAsset={selectedAsset}
+          onStateChange={setState}
+          assemblyScene={assemblyScene}
+          assemblyPackRoot={state?.packRoot ?? null}
+        />
       </div>
+      <aside className="right-column">
       <Inspector
         state={state}
         selectedAsset={selectedAsset}
@@ -195,6 +232,7 @@ export default function App() {
         onStateChange={setState}
         onSelectConnector={(assetId, connectorId) => {
           if (state) {
+            setAssemblyScene(null);
             setState(selectConnector(state, assetId, connectorId));
           }
         }}
@@ -243,6 +281,15 @@ export default function App() {
           })
         }
       />
+      {state ? (
+        <AssemblyPreview
+          state={state}
+          busy={busy}
+          onScene={setAssemblyScene}
+          onStatus={setStatus}
+        />
+      ) : null}
+      </aside>
       <DiagnosticsPanel
         state={state}
         status={status}

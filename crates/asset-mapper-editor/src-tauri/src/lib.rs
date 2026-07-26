@@ -4,8 +4,10 @@ pub mod commands;
 pub mod dto;
 pub mod error;
 
+use asset_mapper_core::AssemblyPlan;
 use dto::{
-    EditorPackState, ExportEditorResult, IndexEditorResult, MeasureEditorResult, SaveEditorResult,
+    AnalyzeEditorResult, EditorPackState, ExportEditorResult, IndexEditorResult,
+    MeasureEditorResult, ResolveEditorResult, SaveEditorResult,
 };
 use error::EditorCommandError;
 
@@ -71,6 +73,30 @@ fn measure_pack_bounds(path: String) -> Result<MeasureEditorResult, EditorComman
     commands::measure_pack_bounds(PathBuf::from(path))
 }
 
+#[tauri::command]
+fn analyze_pack_folder(
+    path: String,
+    replace_existing: bool,
+) -> Result<AnalyzeEditorResult, EditorCommandError> {
+    commands::analyze_pack_folder(PathBuf::from(path), replace_existing)
+}
+
+#[tauri::command]
+fn read_pack_asset_bytes(
+    pack_root: String,
+    source_path: String,
+) -> Result<Vec<u8>, EditorCommandError> {
+    commands::read_pack_asset_bytes(PathBuf::from(pack_root), &source_path)
+}
+
+#[tauri::command]
+fn resolve_assembly_plan(
+    state: EditorPackState,
+    plan: AssemblyPlan,
+) -> Result<ResolveEditorResult, EditorCommandError> {
+    commands::resolve_assembly_plan(state, plan)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -83,6 +109,9 @@ pub fn run() {
             export_bundle,
             accept_hash_drift,
             measure_pack_bounds,
+            analyze_pack_folder,
+            read_pack_asset_bytes,
+            resolve_assembly_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Asset Mapper");

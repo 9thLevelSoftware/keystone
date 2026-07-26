@@ -1,3 +1,4 @@
+pub mod analyze;
 pub mod bundle;
 pub mod diagnostics;
 pub mod export;
@@ -8,6 +9,7 @@ pub mod schema;
 pub mod suggest;
 pub mod validate;
 
+pub use analyze::{AnalyzeOptions, AnalyzeReport, analyze_pack};
 pub use bundle::{BundleAsset, BundleConnector, LlmBundle};
 pub use diagnostics::{Diagnostic, Severity, ValidationReport};
 pub use export::{

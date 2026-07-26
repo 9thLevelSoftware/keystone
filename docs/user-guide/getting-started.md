@@ -49,15 +49,25 @@ asset-mapper validate .\my-pack
 2. If the yellow **Pack incomplete** banner appears, fill **Pack settings** (license + provenance).  
 3. **Measure** bounds, then author connectors and rules.
 
-## 3. Map connectors (editor)
+## 3. Auto-map then tweak (editor)
 
-1. Select an asset → viewport shows the mesh.  
-2. **Add** connector → place with transform gizmo or numeric fields.  
-3. Set **class**, **role**, mating axis.  
-4. Under **Connector Classes** / **Compatibility Rules**, define what can attach.  
-5. Tag assets with vocabulary terms (or add terms in Pack settings).  
-6. **Validate** → fix any errors (click a diagnostic to focus the target).  
-7. **Save** writes `.asset-mapper/pack.assetmap.json`.
+**Default path (what the product is for):**
+
+1. Open or Init the pack (license + author).  
+2. Click **Analyze** — measures bounds and **proposes connectors on mesh bounds faces**, connector classes, and compatibility rules.  
+3. Review proposed connectors in the viewport (green markers). Tweak positions/classes if needed.  
+4. Use **Assembly preview** (right panel): pick two connectors → **Preview mate** to see the resolver attach them in 3D.  
+5. **Validate** → fix errors → **Save**.
+
+**CLI equivalent:**
+
+```powershell
+asset-mapper analyze .\my-pack
+# force replace existing connectors:
+asset-mapper analyze .\my-pack --replace
+```
+
+**Manual path (optional):** Add connectors yourself, set classes/rules, then validate/save as before.
 
 ## 4. Export & resolve
 

@@ -51,3 +51,16 @@ pub struct MeasureEditorResult {
     pub report: asset_mapper_io::MeasureBoundsReport,
     pub state: EditorPackState,
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalyzeEditorResult {
+    pub report: asset_mapper_core::AnalyzeReport,
+    pub state: EditorPackState,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveEditorResult {
+    pub scene: asset_mapper_core::ResolvedScene,
+}

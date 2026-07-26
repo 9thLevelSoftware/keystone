@@ -2,13 +2,29 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type {
+  AssemblyPlan,
   EditorPackState,
   ExportEditorResult,
   IndexEditorResult,
   MeasureEditorResult,
+  ResolvedScene,
   SaveEditorResult,
   ValidationReport,
 } from "./types";
+
+export interface AnalyzeReport {
+  assets_processed: number;
+  connectors_added: number;
+  classes_added: number;
+  rules_added: number;
+  skipped_assets: string[];
+  notes: string[];
+}
+
+export interface AnalyzeEditorResult {
+  report: AnalyzeReport;
+  state: EditorPackState;
+}
 
 export async function choosePackFolder(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false });
@@ -72,4 +88,25 @@ export function acceptHashDrift(
 
 export function measurePackBounds(path: string): Promise<MeasureEditorResult> {
   return invoke("measure_pack_bounds", { path });
+}
+
+export function analyzePackFolder(
+  path: string,
+  replaceExisting = false,
+): Promise<AnalyzeEditorResult> {
+  return invoke("analyze_pack_folder", { path, replaceExisting });
+}
+
+export function readPackAssetBytes(
+  packRoot: string,
+  sourcePath: string,
+): Promise<number[] | Uint8Array> {
+  return invoke("read_pack_asset_bytes", { packRoot, sourcePath });
+}
+
+export function resolveAssemblyPlan(
+  state: EditorPackState,
+  plan: AssemblyPlan,
+): Promise<{ scene: ResolvedScene }> {
+  return invoke("resolve_assembly_plan", { state, plan });
 }

@@ -6,6 +6,7 @@ interface AssetListProps {
   onOpen: () => void;
   onInit: () => void;
   onIndex: () => void;
+  onAnalyze: () => void;
   onReload: () => void;
   onDiscard: () => void;
   onSelectAsset: (assetId: string) => void;
@@ -17,6 +18,7 @@ export default function AssetList({
   onOpen,
   onInit,
   onIndex,
+  onAnalyze,
   onReload,
   onDiscard,
   onSelectAsset,
@@ -32,6 +34,14 @@ export default function AssetList({
         </button>
         <button type="button" disabled={busy || !state} onClick={onIndex}>
           Index
+        </button>
+        <button
+          type="button"
+          disabled={busy || !state}
+          onClick={onAnalyze}
+          title="Measure bounds and auto-propose connectors + rules"
+        >
+          Analyze
         </button>
         <button type="button" disabled={busy || !state} onClick={onReload}>
           Reload

@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use asset_mapper_core::{
-    AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION, ControlledVocabulary,
-    CoordinateConvention, Handedness, PackProvenance, PackRecord, Pivot, ReviewFlag, Unit,
-    hash::sha256_file,
+    AnalyzeOptions, AnalyzeReport, AssetRecord, AssetType, Axis3, Bounds3, CURRENT_SCHEMA_VERSION,
+    ControlledVocabulary, CoordinateConvention, Handedness, PackProvenance, PackRecord, Pivot,
+    ReviewFlag, Unit, analyze_pack, hash::sha256_file,
 };
 use serde::{Deserialize, Serialize};
 
@@ -511,6 +511,20 @@ pub fn measure_pack_bounds(pack_root: impl AsRef<Path>) -> Result<MeasureBoundsR
         failed: sorted_sources(failed),
         missing: sorted_sources(missing),
     })
+}
+
+/// Measure bounds (best-effort) then auto-propose connectors, classes, and rules.
+pub fn analyze_pack_folder(
+    pack_root: impl AsRef<Path>,
+    options: AnalyzeOptions,
+) -> Result<AnalyzeReport, IoError> {
+    let pack_root = pack_root.as_ref();
+    // Prefer fresh bounds before proposing face connectors.
+    let _ = measure_pack_bounds(pack_root);
+    let mut loaded = read_pack_from_input(pack_root)?;
+    let report = analyze_pack(&mut loaded.pack, &options);
+    write_pack_sidecar(pack_root, &loaded.pack)?;
+    Ok(report)
 }
 
 fn is_supported_asset_file(path: &Path) -> bool {

@@ -21,9 +21,17 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 import type { AssetRecord, ConnectorRecord } from "../types";
 
+export interface AssemblyPiece {
+  url: string;
+  asset: AssetRecord;
+  translation: [number, number, number];
+  rotation: [number, number, number, number];
+}
+
 export interface AssetViewer {
   clear(): void;
   loadAsset(url: string, asset: AssetRecord): Promise<void>;
+  loadAssembly(pieces: AssemblyPiece[]): Promise<void>;
   setConnectors(connectors: ConnectorRecord[]): void;
   selectConnector(connectorId: string | null): void;
   dispose(): void;
@@ -63,6 +71,7 @@ export function createAssetViewer(
   scene.add(light);
 
   let model: Group | null = null;
+  let assemblyRoot: Group | null = null;
   let boundsHelper: Box3Helper | null = null;
   const markers = new Map<string, Mesh>();
   let selectedConnectorId: string | null = null;
@@ -119,6 +128,12 @@ export function createAssetViewer(
       model = null;
     }
 
+    if (assemblyRoot) {
+      scene.remove(assemblyRoot);
+      disposeObject(assemblyRoot);
+      assemblyRoot = null;
+    }
+
     if (boundsHelper) {
       scene.remove(boundsHelper);
       boundsHelper.geometry.dispose();
@@ -166,6 +181,57 @@ export function createAssetViewer(
       controls.target.copy(center);
       camera.position.copy(center.clone().add(new Vector3(radius, radius, radius)));
       controls.update();
+      resize();
+    },
+    async loadAssembly(pieces) {
+      clearModel();
+      clearMarkers();
+      transform.detach();
+
+      assemblyRoot = new Group();
+      scene.add(assemblyRoot);
+
+      const worldBounds = new Box3();
+      let hasBounds = false;
+
+      for (const piece of pieces) {
+        const gltf = await new GLTFLoader().loadAsync(piece.url);
+        const root = gltf.scene;
+        root.position.set(...piece.translation);
+        root.quaternion.set(...piece.rotation);
+        assemblyRoot.add(root);
+
+        const local = new Box3(
+          new Vector3(...piece.asset.bounds.min),
+          new Vector3(...piece.asset.bounds.max),
+        );
+        local.applyMatrix4(root.matrixWorld);
+        // matrixWorld may be stale until update
+        root.updateWorldMatrix(true, true);
+        const box = new Box3().setFromObject(root);
+        if (!box.isEmpty()) {
+          worldBounds.union(box);
+          hasBounds = true;
+        } else {
+          worldBounds.union(local);
+          hasBounds = true;
+        }
+      }
+
+      if (hasBounds && !worldBounds.isEmpty()) {
+        boundsHelper = new Box3Helper(worldBounds, 0xa78bfa);
+        scene.add(boundsHelper);
+        const size = new Vector3();
+        worldBounds.getSize(size);
+        const center = new Vector3();
+        worldBounds.getCenter(center);
+        const radius = Math.max(size.length(), 1);
+        controls.target.copy(center);
+        camera.position.copy(
+          center.clone().add(new Vector3(radius, radius * 0.8, radius)),
+        );
+        controls.update();
+      }
       resize();
     },
     setConnectors(connectors) {
