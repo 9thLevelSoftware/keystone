@@ -60,8 +60,23 @@ pub fn default_placement_constraints() -> Vec<String> {
     .collect()
 }
 
+/// Placeholder written by `init` / migrate when the author has not yet set a license.
+///
+/// Production validation rejects any `license_summary` that is empty or starts
+/// with `UNSPECIFIED` (case-insensitive) so packs cannot ship on this sentinel.
+pub const PLACEHOLDER_LICENSE_SUMMARY: &str =
+    "UNSPECIFIED — set license_summary before distributing this pack";
+
+/// Returns true when `summary` is non-empty and is not an `UNSPECIFIED` placeholder.
+pub fn license_summary_is_production_ready(summary: &str) -> bool {
+    let trimmed = summary.trim();
+    !trimmed.is_empty() && !trimmed.to_ascii_uppercase().starts_with("UNSPECIFIED")
+}
+
 /// Pack-level provenance for auditability and redistribution context.
-#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
 pub struct PackProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -80,13 +95,23 @@ impl PackProvenance {
             && self.created_at.as_ref().is_none_or(|s| s.trim().is_empty())
             && self.notes.as_ref().is_none_or(|s| s.trim().is_empty())
     }
+
+    /// Production packs must identify `source` and/or `author`.
+    ///
+    /// Notes or `created_at` alone (including migrate fillers) are not enough.
+    pub fn meets_production_requirements(&self) -> bool {
+        self.source.as_ref().is_some_and(|s| !s.trim().is_empty())
+            || self.author.as_ref().is_some_and(|s| !s.trim().is_empty())
+    }
 }
 
 /// Controlled vocabularies for semantic tags, affordances, and placement constraints.
 ///
 /// Tags may use namespaced extensions (`project:custom_tag`) when
 /// [`ControlledVocabulary::allow_namespaced_extensions`] is true.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
 pub struct ControlledVocabulary {
     #[serde(default)]
     pub semantic_tags: Vec<String>,

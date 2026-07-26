@@ -36,6 +36,10 @@ First production-complete cut covering Phases 0–3.
 - Authoring helpers: duplicate connector, snap to bounds faces, class-from-name suggestions
 
 ### Production
+- Schema v2 production gates: non-placeholder `license_summary` (rejects empty/`UNSPECIFIED`), provenance requiring source or author, controlled vocabulary
+- Full editor pack settings UI (license, provenance, vocabulary)
+- WASM bindings: `validate_pack_json` / `resolve_plan_json` / `bundle_pack_json`
+- FBX bounds: ASCII + binary Kaydara Vertices AABB (raw/zlib, f/d arrays, v7400 + v7500 headers; array/depth caps)
 - Dual license files: `LICENSE-MIT`, `LICENSE-APACHE`
 - GitHub Actions CI (fmt, clippy, cargo test, npm test/build)
 - Release documentation (`docs/superpowers/RELEASE.md`)

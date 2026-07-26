@@ -3,9 +3,7 @@
 //! These APIs take and return JSON strings so JS/TS hosts do not need a
 //! second schema implementation. Geometry math stays in Rust.
 
-use asset_mapper_core::{
-    AssemblyPlan, LlmBundle, PackRecord, resolve_plan, validate_pack,
-};
+use asset_mapper_core::{AssemblyPlan, LlmBundle, PackRecord, resolve_plan, validate_pack};
 use wasm_bindgen::prelude::*;
 
 fn parse_pack(pack_json: &str) -> Result<PackRecord, JsValue> {
@@ -29,7 +27,8 @@ pub fn validate_pack_json(pack_json: &str) -> Result<String, JsValue> {
 pub fn resolve_plan_json(pack_json: &str, plan_json: &str) -> Result<String, JsValue> {
     let pack = parse_pack(pack_json)?;
     let plan = parse_plan(plan_json)?;
-    let scene = resolve_plan(&pack, &plan).map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let scene =
+        resolve_plan(&pack, &plan).map_err(|error| JsValue::from_str(&error.to_string()))?;
     serde_json::to_string(&scene).map_err(|error| JsValue::from_str(&error.to_string()))
 }
 

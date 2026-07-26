@@ -258,6 +258,163 @@ fn placeholder_review_flags_are_warnings() {
     assert_eq!(pivot.severity, Severity::Warning);
 }
 
+#[test]
+fn missing_license_summary_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.license_summary = "   ".to_owned();
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "missing_license_summary")
+        .expect("missing license summary diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn unspecified_placeholder_license_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.license_summary = asset_mapper_core::PLACEHOLDER_LICENSE_SUMMARY.to_owned();
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "missing_license_summary")
+        .expect("placeholder license must fail production gate");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn missing_provenance_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.provenance = asset_mapper_core::PackProvenance::default();
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "missing_provenance")
+        .expect("missing provenance diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn notes_only_provenance_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.provenance = asset_mapper_core::PackProvenance {
+        notes: Some("Migrated to schema v2; set source or author for production.".to_owned()),
+        ..asset_mapper_core::PackProvenance::default()
+    };
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "missing_provenance")
+        .expect("notes-only provenance must fail production gate");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn empty_vocabulary_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.vocabulary.semantic_tags.clear();
+    pack.vocabulary.affordances.clear();
+    pack.vocabulary.placement_constraints.clear();
+    // Avoid cascading unknown-term errors from asset tags against empty lists.
+    for asset in &mut pack.assets {
+        asset.semantic_tags.clear();
+        asset.affordances.clear();
+        asset.placement_constraints.clear();
+    }
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "empty_vocabulary")
+        .expect("empty vocabulary diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn unknown_semantic_tag_is_an_error() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.assets[0].semantic_tags.push("not_in_vocab".to_owned());
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "unknown_semantic_tag")
+        .expect("unknown semantic tag diagnostic is present");
+    assert_eq!(diagnostic.severity, Severity::Error);
+    assert_eq!(diagnostic.asset_id.as_deref(), Some("corridor_a"));
+}
+
+#[test]
+fn namespaced_tag_allowed_when_enabled() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.vocabulary.allow_namespaced_extensions = true;
+    pack.assets[0]
+        .semantic_tags
+        .push("project:custom_tag".to_owned());
+
+    let report = validate_pack(&pack);
+
+    assert!(
+        find_code(&report.diagnostics, "unknown_semantic_tag").is_none(),
+        "namespaced tag should be accepted when enabled: {:#?}",
+        report.diagnostics
+    );
+}
+
+#[test]
+fn namespaced_tag_rejected_when_disabled() {
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.vocabulary.allow_namespaced_extensions = false;
+    pack.assets[0]
+        .semantic_tags
+        .push("project:custom_tag".to_owned());
+
+    let report = validate_pack(&pack);
+
+    assert!(!report.is_valid());
+    let diagnostic = find_code(&report.diagnostics, "unknown_semantic_tag")
+        .expect("namespaced tag should be rejected when disabled");
+    assert_eq!(diagnostic.severity, Severity::Error);
+}
+
+#[test]
+fn validation_uses_allows_term_for_vocab_acceptance() {
+    // Guard against validate.rs re-implementing namespaced rules separately from
+    // ControlledVocabulary::allows_term.
+    let mut pack = load_pack("fixtures/phase0/simple_pack.assetmap.json");
+    pack.vocabulary.allow_namespaced_extensions = true;
+    let listed = pack.vocabulary.semantic_tags[0].clone();
+    assert!(
+        pack.vocabulary
+            .allows_term(&pack.vocabulary.semantic_tags, &listed)
+    );
+    assert!(
+        pack.vocabulary
+            .allows_term(&pack.vocabulary.semantic_tags, "project:from_allows_term")
+    );
+    assert!(
+        !pack
+            .vocabulary
+            .allows_term(&pack.vocabulary.semantic_tags, "not_listed")
+    );
+
+    pack.assets[0].semantic_tags = vec![listed, "project:from_allows_term".to_owned()];
+    let report = validate_pack(&pack);
+    assert!(
+        find_code(&report.diagnostics, "unknown_semantic_tag").is_none(),
+        "validate must accept exactly what allows_term accepts: {:#?}",
+        report.diagnostics
+    );
+
+    pack.assets[0].semantic_tags.push("not_listed".to_owned());
+    let report = validate_pack(&pack);
+    assert!(find_code(&report.diagnostics, "unknown_semantic_tag").is_some());
+}
+
 fn find_code<'a>(diagnostics: &'a [Diagnostic], code: &str) -> Option<&'a Diagnostic> {
     diagnostics
         .iter()

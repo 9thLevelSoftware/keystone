@@ -160,6 +160,7 @@ name = "asset-mapper-io"
 version = "0.1.0"
 dependencies = [
  "asset-mapper-core",
+ "flate2",
  "gltf",
  "serde",
  "serde_json",

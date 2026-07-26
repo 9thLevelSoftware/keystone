@@ -4,7 +4,8 @@
 //! [`crate::schema::CURRENT_SCHEMA_VERSION`].
 
 use crate::schema::{
-    CURRENT_SCHEMA_VERSION, ControlledVocabulary, PackProvenance, PackRecord, ReviewFlag,
+    CURRENT_SCHEMA_VERSION, ControlledVocabulary, PLACEHOLDER_LICENSE_SUMMARY, PackProvenance,
+    PackRecord, ReviewFlag,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -137,13 +138,14 @@ fn migrate_v0_to_v1(pack: &mut PackRecord) {
 }
 
 fn migrate_v1_to_v2(pack: &mut PackRecord) {
+    // Seed discoverable placeholders. Production validate still rejects
+    // UNSPECIFIED licenses and notes-only provenance until authors fill them.
     if pack.license_summary.trim().is_empty() {
-        pack.license_summary =
-            "UNSPECIFIED — set license_summary before distributing this pack".to_owned();
+        pack.license_summary = PLACEHOLDER_LICENSE_SUMMARY.to_owned();
     }
     if pack.provenance.is_empty() {
         pack.provenance = PackProvenance {
-            notes: Some("Migrated to schema v2; fill provenance for production.".to_owned()),
+            notes: Some("Migrated to schema v2; set source or author for production.".to_owned()),
             ..PackProvenance::default()
         };
     }

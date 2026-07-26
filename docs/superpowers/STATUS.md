@@ -27,7 +27,7 @@ Production-ready means:
 4. Release artifacts documented for CLI and editor.
 5. README/docs match reality; LICENSE files match dual-license claim.
 6. Phase 3 export, 2D authoring, migrations, and authoring helpers are implemented.
-7. Production packs require license summary, provenance, and controlled vocabulary.
+7. Production packs require a real license summary (not empty/`UNSPECIFIED`), provenance with source or author, and controlled vocabulary.
 8. WASM bindings expose validate/resolve/bundle for embedders.
 9. Editor UI covers pack settings, vocab, connectors, rules, diagnostics, session ops.
 
@@ -120,12 +120,12 @@ Production-ready means:
 | X-03 | Release packaging docs | Done | `docs/superpowers/RELEASE.md` |
 | X-04 | Changelog | Done | `CHANGELOG.md` |
 | X-05 | README accuracy | Done | Status table updated |
-| X-06 | Provenance fields | Done | Schema v2 `provenance` + validation error if empty |
+| X-06 | Provenance fields | Done | Schema v2 `provenance`; validate requires source or author (not notes-only) |
 | X-07 | Controlled vocabulary | Done | Schema v2 `vocabulary` + unknown-term errors |
 | X-08 | WASM resolver bindings | Done | `asset-mapper-wasm` (`resolve/validate/bundle` JSON APIs) |
 | X-09 | Status file hygiene | Done | This file |
 | X-10 | Fully functional editor UI | Done | Pack settings, tags, provenance, measure/drift, full connector/rules |
-| X-11 | FBX bounds | Partial | ASCII FBX Vertices measured; binary FBX still placeholder |
+| X-11 | FBX bounds | Done | ASCII + binary Kaydara FBX Vertices AABB (raw + zlib arrays) |
 
 ---
 

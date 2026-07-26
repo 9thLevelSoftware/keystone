@@ -16,14 +16,14 @@ Keystone is the canonical metadata layer for jigsaw-style asset packs: it captur
 | 1 | Headless CLI for pack folder workflow | Done |
 | 2 | Interactive editor MVP | Done |
 | 3 | Engine/export integration, 2D authoring, migrations | Done |
-| Prod gates | Provenance, vocabulary, WASM, full editor UI | Done (binary FBX bounds still partial) |
+| Prod gates | Provenance, vocabulary, WASM, full editor UI, FBX bounds | Done |
 
 ## Workspace
 
 Cargo workspace, edition 2024, MSRV `1.85`, dual-licensed MIT OR Apache-2.0:
 
 - **`asset-mapper-core`** — canonical schema, `validate_pack`, content hashing, `LlmBundle`, `resolve_plan` (3D + Frame2d), migrations, engine/glTF export helpers, authoring suggestions. No I/O dependencies.
-- **`asset-mapper-io`** — pack folder indexing, bounds measurement (glTF/OBJ/images), sidecar read/write, accept-drift, migration IO.
+- **`asset-mapper-io`** — pack folder indexing, bounds measurement (glTF/OBJ/images/ASCII+binary FBX), sidecar read/write, accept-drift, migration IO.
 - **`asset-mapper-cli`** — the `asset-mapper` binary (`clap` derive subcommands).
 - **`asset-mapper-editor`** — Tauri v2 desktop editor (React + Three.js) over the same core/IO crates.
 - **`asset-mapper-wasm`** — WASM JSON APIs: `validate_pack_json`, `resolve_plan_json`, `bundle_pack_json`.
@@ -163,7 +163,7 @@ A pack is a folder containing assets plus an `*.assetmap.json` sidecar that reco
 - connector definitions as precise local-space frames (`Frame3d` or `Frame2d`), tagged with a `class`
 - connector classes and **class-based** compatibility rules
 - semantic tags, affordances, and placement constraints
-- optional provenance / license summary
+- production metadata: non-placeholder `license_summary`, provenance (`source` and/or `author`), controlled vocabulary
 
 Working examples:
 

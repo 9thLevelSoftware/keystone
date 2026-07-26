@@ -61,9 +61,10 @@ pub fn init_pack_folder(
             forward_axis: Axis3::PosZ,
         },
         default_units: Unit::Meters,
-        license_summary: "UNSPECIFIED — set license_summary before distributing this pack"
-            .to_owned(),
+        // Placeholder license fails production validate until the author sets a real one.
+        license_summary: asset_mapper_core::PLACEHOLDER_LICENSE_SUMMARY.to_owned(),
         provenance: PackProvenance {
+            // Source is set so init packs meet provenance production requirements.
             source: Some(pack_root.display().to_string()),
             author: None,
             created_at: None,

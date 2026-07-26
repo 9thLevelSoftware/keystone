@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use crate::diagnostics::{Diagnostic, ValidationReport};
 use crate::schema::{
-    AllowedRotation, CURRENT_SCHEMA_VERSION, ConnectorFrame, PackRecord, ReviewFlag,
+    AllowedRotation, CURRENT_SCHEMA_VERSION, ConnectorFrame, ControlledVocabulary, PackRecord,
+    ReviewFlag, license_summary_is_production_ready,
 };
 
 const QUAT_NORMALIZED_EPSILON: f32 = 0.001;
@@ -21,17 +22,17 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
         ));
     }
 
-    if pack.license_summary.trim().is_empty() {
+    if !license_summary_is_production_ready(&pack.license_summary) {
         diagnostics.push(Diagnostic::error(
             "missing_license_summary",
-            "pack license_summary is required for production packs",
+            "pack license_summary is required for production packs (must not be empty or an UNSPECIFIED placeholder)",
         ));
     }
 
-    if pack.provenance.is_empty() {
+    if !pack.provenance.meets_production_requirements() {
         diagnostics.push(Diagnostic::error(
             "missing_provenance",
-            "pack provenance (source, author, created_at, or notes) is required",
+            "pack provenance requires a non-empty source or author for production packs",
         ));
     }
 
@@ -172,8 +173,8 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
             "semantic_tags",
             "unknown_semantic_tag",
             &asset.semantic_tags,
+            &pack.vocabulary,
             &pack.vocabulary.semantic_tags,
-            pack.vocabulary.allow_namespaced_extensions,
         );
         validate_vocab_terms(
             &mut diagnostics,
@@ -181,8 +182,8 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
             "affordances",
             "unknown_affordance",
             &asset.affordances,
+            &pack.vocabulary,
             &pack.vocabulary.affordances,
-            pack.vocabulary.allow_namespaced_extensions,
         );
         validate_vocab_terms(
             &mut diagnostics,
@@ -190,8 +191,8 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
             "placement_constraints",
             "unknown_placement_constraint",
             &asset.placement_constraints,
+            &pack.vocabulary,
             &pack.vocabulary.placement_constraints,
-            pack.vocabulary.allow_namespaced_extensions,
         );
 
         let mut connector_ids = HashSet::new();
@@ -390,8 +391,8 @@ fn validate_vocab_terms(
     field: &str,
     code: &str,
     terms: &[String],
+    vocabulary: &ControlledVocabulary,
     allowed: &[String],
-    allow_namespaced: bool,
 ) {
     for term in terms {
         let trimmed = term.trim();
@@ -405,13 +406,8 @@ fn validate_vocab_terms(
             );
             continue;
         }
-        let listed = allowed.iter().any(|entry| entry == trimmed);
-        let namespaced_ok = allow_namespaced
-            && trimmed.contains(':')
-            && trimmed.split_once(':').is_some_and(|(ns, rest)| {
-                !ns.trim().is_empty() && !rest.trim().is_empty() && !rest.contains(':')
-            });
-        if !listed && !namespaced_ok {
+        // Single source of truth for listed + namespaced acceptance rules.
+        if !vocabulary.allows_term(allowed, trimmed) {
             diagnostics.push(
                 Diagnostic::error(
                     code,

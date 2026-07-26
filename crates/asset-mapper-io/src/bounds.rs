@@ -39,11 +39,11 @@ pub fn measure_asset_bounds(path: &Path) -> Result<Option<MeasuredBounds>, IoErr
     }
 }
 
-/// Measure FBX bounds from ASCII FBX `Vertices` arrays, or from common
-/// Geometry bounding-box properties when present.
+/// Measure FBX bounds from ASCII or binary FBX `Vertices` geometry arrays.
 ///
-/// Binary FBX (Kaydara header) is not fully decoded here; returns `Ok(None)`
-/// so callers keep placeholders and can convert to glTF.
+/// Binary path walks the Kaydara node tree and expands AABB from every
+/// `Vertices` float/double array (raw or zlib-compressed). Nested node
+/// transforms are not applied — same local-space model as ASCII.
 fn measure_fbx(path: &Path) -> Result<Option<MeasuredBounds>, IoError> {
     let bytes = std::fs::read(path).map_err(|source| IoError::ReadFile {
         path: path.to_path_buf(),
@@ -51,7 +51,7 @@ fn measure_fbx(path: &Path) -> Result<Option<MeasuredBounds>, IoError> {
     })?;
 
     if bytes.starts_with(b"Kaydara FBX Binary") {
-        return Ok(None);
+        return Ok(parse_fbx_binary_vertices(&bytes));
     }
 
     let contents = String::from_utf8_lossy(&bytes);
@@ -99,11 +99,300 @@ fn parse_fbx_ascii_vertices(contents: &str) -> Option<MeasuredBounds> {
         }
     }
 
-    if found {
-        measured(min, max)
-    } else {
-        None
+    if found { measured(min, max) } else { None }
+}
+
+/// Kaydara binary FBX magic is 23 bytes (`"Kaydara FBX Binary  \0\x1a\0"`), then
+/// a little-endian `u32` version. Versions ≥ 7500 use 64-bit node headers.
+const FBX_BINARY_HEADER_LEN: usize = 27;
+const FBX_BINARY_MAGIC: &[u8] = b"Kaydara FBX Binary  \0\x1a\0";
+/// Hard cap on Vertices array elements (floats/doubles). ~16M scalars ≈ 5M
+/// xyz points — enough for real assets; rejects adversarial multi-GiB claims.
+const FBX_MAX_ARRAY_ELEMENTS: usize = 16_777_216;
+/// Nesting limit for untrusted binary trees (legitimate FBX is far shallower).
+const FBX_MAX_NODE_DEPTH: u32 = 128;
+
+fn parse_fbx_binary_vertices(bytes: &[u8]) -> Option<MeasuredBounds> {
+    if bytes.len() < FBX_BINARY_HEADER_LEN || !bytes.starts_with(FBX_BINARY_MAGIC) {
+        return None;
     }
+    let version = u32::from_le_bytes(bytes[23..27].try_into().ok()?);
+    let large = version >= 7500;
+
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    let mut found = false;
+    let mut cursor = FBX_BINARY_HEADER_LEN;
+
+    while cursor < bytes.len() {
+        match read_fbx_binary_node(bytes, &mut cursor, large, 0, &mut min, &mut max) {
+            Ok(true) => found = true,
+            Ok(false) => {}
+            // Null terminator, depth limit, or truncated trailer ends the walk.
+            Err(_) => break,
+        }
+    }
+
+    if found { measured(min, max) } else { None }
+}
+
+/// Read one FBX binary node (and nested children). Returns `Ok(true)` if any
+/// `Vertices` geometry was folded into the AABB. `Ok(false)` for a normal
+/// node without vertices. Errors on null records (caller stops) or truncation.
+fn read_fbx_binary_node(
+    bytes: &[u8],
+    cursor: &mut usize,
+    large: bool,
+    depth: u32,
+    min: &mut [f32; 3],
+    max: &mut [f32; 3],
+) -> Result<bool, ()> {
+    if depth > FBX_MAX_NODE_DEPTH {
+        return Err(());
+    }
+
+    let header_size = if large { 25 } else { 13 };
+    let header_end = cursor.checked_add(header_size).ok_or(())?;
+    if header_end > bytes.len() {
+        return Err(());
+    }
+
+    let (end_offset, num_properties, property_list_len) = if large {
+        let end = usize::try_from(read_u64(bytes, cursor)?).map_err(|_| ())?;
+        let num = usize::try_from(read_u64(bytes, cursor)?).map_err(|_| ())?;
+        let plen = usize::try_from(read_u64(bytes, cursor)?).map_err(|_| ())?;
+        (end, num, plen)
+    } else {
+        let end = read_u32(bytes, cursor)? as usize;
+        let num = read_u32(bytes, cursor)? as usize;
+        let plen = read_u32(bytes, cursor)? as usize;
+        (end, num, plen)
+    };
+
+    let name_len = *bytes.get(*cursor).ok_or(())? as usize;
+    *cursor = cursor.checked_add(1).ok_or(())?;
+
+    // Null record: end_offset == 0 (and typically empty name/props).
+    if end_offset == 0 {
+        return Err(());
+    }
+
+    let name_end = cursor.checked_add(name_len).ok_or(())?;
+    if name_end > bytes.len() {
+        return Err(());
+    }
+    let name = std::str::from_utf8(&bytes[*cursor..name_end]).unwrap_or("");
+    *cursor = name_end;
+
+    let props_start = *cursor;
+    // checked_add: v7500 property_list_len is u64-derived and must not wrap.
+    let props_end = props_start.checked_add(property_list_len).ok_or(())?;
+    if props_end > bytes.len() {
+        return Err(());
+    }
+    let props = &bytes[props_start..props_end];
+    *cursor = props_end;
+
+    let mut found = false;
+    if name == "Vertices" && expand_from_fbx_property_list(props, num_properties, min, max) {
+        found = true;
+    }
+
+    // Nested children fill the remaining span up to end_offset.
+    while *cursor < end_offset && *cursor < bytes.len() {
+        match read_fbx_binary_node(bytes, cursor, large, depth + 1, min, max) {
+            Ok(child_found) => {
+                if child_found {
+                    found = true;
+                }
+            }
+            Err(()) => break,
+        }
+    }
+
+    // Ensure we don't re-read trailing padding if the writer left slack.
+    if *cursor < end_offset && end_offset <= bytes.len() {
+        *cursor = end_offset;
+    }
+
+    Ok(found)
+}
+
+fn expand_from_fbx_property_list(
+    props: &[u8],
+    num_properties: usize,
+    min: &mut [f32; 3],
+    max: &mut [f32; 3],
+) -> bool {
+    let mut offset = 0usize;
+    let mut found = false;
+    for _ in 0..num_properties {
+        let Some((next, values)) = read_fbx_property_array(props, offset) else {
+            break;
+        };
+        offset = next;
+        if let Some(coords) = values {
+            if coords.len() < 3 {
+                continue;
+            }
+            for chunk in coords.chunks_exact(3) {
+                let point = [chunk[0], chunk[1], chunk[2]];
+                if !point.iter().all(|v| v.is_finite()) {
+                    continue;
+                }
+                expand(min, max, point);
+                found = true;
+            }
+        }
+    }
+    found
+}
+
+/// Advance `from` by `nbytes`, requiring the result to stay within `len`.
+fn advance_within(from: usize, nbytes: usize, len: usize) -> Option<usize> {
+    let next = from.checked_add(nbytes)?;
+    if next > len { None } else { Some(next) }
+}
+
+/// Parse one FBX property. Returns the next offset and, when the property is a
+/// float/double array, the decoded coordinate stream as `f32` values.
+fn read_fbx_property_array(props: &[u8], offset: usize) -> Option<(usize, Option<Vec<f32>>)> {
+    if offset >= props.len() {
+        return None;
+    }
+    let type_code = props[offset];
+    let mut i = offset + 1;
+
+    match type_code {
+        b'Y' => {
+            i = advance_within(i, 2, props.len())?;
+            Some((i, None))
+        }
+        b'C' => {
+            i = advance_within(i, 1, props.len())?;
+            Some((i, None))
+        }
+        b'I' | b'F' => {
+            i = advance_within(i, 4, props.len())?;
+            Some((i, None))
+        }
+        b'D' | b'L' => {
+            i = advance_within(i, 8, props.len())?;
+            Some((i, None))
+        }
+        b'S' | b'R' => {
+            let header_end = i.checked_add(4)?;
+            if header_end > props.len() {
+                return None;
+            }
+            let len = u32::from_le_bytes(props[i..header_end].try_into().ok()?) as usize;
+            i = advance_within(i, 4, props.len())?;
+            i = advance_within(i, len, props.len())?;
+            Some((i, None))
+        }
+        b'f' | b'd' | b'i' | b'l' | b'b' => {
+            let header_end = i.checked_add(12)?;
+            if header_end > props.len() {
+                return None;
+            }
+            let array_len = u32::from_le_bytes(props[i..i + 4].try_into().ok()?) as usize;
+            let encoding = u32::from_le_bytes(props[i + 4..i + 8].try_into().ok()?);
+            let compressed_len =
+                u32::from_le_bytes(props[i + 8..header_end].try_into().ok()?) as usize;
+            i = header_end;
+            let payload_end = i.checked_add(compressed_len)?;
+            if payload_end > props.len() {
+                return None;
+            }
+            let payload = &props[i..payload_end];
+            i = payload_end;
+
+            // Cap before any allocation / inflate to avoid OOM on corrupt files.
+            if array_len > FBX_MAX_ARRAY_ELEMENTS {
+                return Some((i, None));
+            }
+
+            let element_size = match type_code {
+                b'f' | b'i' => 4usize,
+                b'd' | b'l' => 8,
+                b'b' => 1,
+                _ => return Some((i, None)),
+            };
+            let raw_len = array_len.checked_mul(element_size)?;
+            let raw = decode_fbx_array_payload(payload, encoding, raw_len)?;
+
+            let values = match type_code {
+                b'f' => {
+                    let mut out = Vec::with_capacity(array_len);
+                    for chunk in raw.chunks_exact(4) {
+                        out.push(f32::from_le_bytes(chunk.try_into().ok()?));
+                    }
+                    Some(out)
+                }
+                b'd' => {
+                    let mut out = Vec::with_capacity(array_len);
+                    for chunk in raw.chunks_exact(8) {
+                        out.push(f64::from_le_bytes(chunk.try_into().ok()?) as f32);
+                    }
+                    Some(out)
+                }
+                _ => None,
+            };
+            Some((i, values))
+        }
+        _ => None,
+    }
+}
+
+fn decode_fbx_array_payload(
+    payload: &[u8],
+    encoding: u32,
+    expected_raw_len: usize,
+) -> Option<Vec<u8>> {
+    match encoding {
+        0 => {
+            if payload.len() < expected_raw_len {
+                return None;
+            }
+            Some(payload[..expected_raw_len].to_vec())
+        }
+        1 => {
+            use flate2::read::ZlibDecoder;
+            use std::io::Read;
+            // Bound inflate output to the declared array size so a tiny compressed
+            // bomb cannot expand past expected_raw_len into unbounded memory.
+            let mut decoder = ZlibDecoder::new(payload).take(expected_raw_len as u64);
+            let mut raw = Vec::new();
+            // Cap was already applied to array_len; reserve is safe and bounded.
+            raw.try_reserve_exact(expected_raw_len).ok()?;
+            decoder.read_to_end(&mut raw).ok()?;
+            if raw.len() != expected_raw_len {
+                return None;
+            }
+            Some(raw)
+        }
+        _ => None,
+    }
+}
+
+fn read_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, ()> {
+    let end = cursor.checked_add(4).ok_or(())?;
+    if end > bytes.len() {
+        return Err(());
+    }
+    let value = u32::from_le_bytes(bytes[*cursor..end].try_into().map_err(|_| ())?);
+    *cursor = end;
+    Ok(value)
+}
+
+fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, ()> {
+    let end = cursor.checked_add(8).ok_or(())?;
+    if end > bytes.len() {
+        return Err(());
+    }
+    let value = u64::from_le_bytes(bytes[*cursor..end].try_into().map_err(|_| ())?);
+    *cursor = end;
+    Ok(value)
 }
 
 fn measured(min: Vec3, max: Vec3) -> Option<MeasuredBounds> {
