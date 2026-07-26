@@ -1,5 +1,6 @@
 ---
 source: crates/asset-mapper-core/tests/bundle.rs
+assertion_line: 25
 expression: bundle_json
 ---
 {
@@ -73,5 +74,50 @@ expression: bundle_json
     }
   ],
   "display_name": "Phase 0 Corridor Fixture",
-  "pack_id": "phase0_corridor"
+  "license_summary": "MIT OR Apache-2.0 — test fixture",
+  "pack_id": "phase0_corridor",
+  "provenance": {
+    "notes": "Phase fixture pack",
+    "source": "fixtures"
+  },
+  "vocabulary": {
+    "affordances": [
+      "block_movement",
+      "climbable",
+      "interactable",
+      "light_source",
+      "openable",
+      "provide_cover",
+      "sittable",
+      "walkable"
+    ],
+    "allow_namespaced_extensions": true,
+    "placement_constraints": [
+      "ceiling_mounted",
+      "grounded",
+      "indoor_only",
+      "outdoor_only",
+      "requires_floor",
+      "requires_wall",
+      "upright_only",
+      "wall_mounted"
+    ],
+    "semantic_tags": [
+      "wall",
+      "floor",
+      "corner",
+      "door",
+      "window",
+      "walkable",
+      "cover",
+      "decorative",
+      "hazard",
+      "lootable",
+      "entry",
+      "exit",
+      "corridor",
+      "roof",
+      "prop"
+    ]
+  }
 }

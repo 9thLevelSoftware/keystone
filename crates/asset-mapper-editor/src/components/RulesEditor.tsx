@@ -1,10 +1,13 @@
 import {
   addCompatibilityRule,
   addConnectorClass,
+  removeCompatibilityRule,
+  removeConnectorClass,
+  rotationFromKind,
   updateCompatibilityRule,
   updateConnectorClass,
 } from "../editorState";
-import type { EditorPackState } from "../types";
+import type { AllowedRotation, EditorPackState } from "../types";
 
 interface RulesEditorProps {
   state: EditorPackState;
@@ -54,6 +57,13 @@ export default function RulesEditor({ state, onStateChange }: RulesEditorProps) 
               )
             }
           />
+          <button
+            type="button"
+            aria-label={`Delete class ${index + 1}`}
+            onClick={() => onStateChange(removeConnectorClass(state, index))}
+          >
+            Delete
+          </button>
         </div>
       ))}
 
@@ -71,7 +81,7 @@ export default function RulesEditor({ state, onStateChange }: RulesEditorProps) 
         </button>
       </div>
       {state.pack.compatibility_rules.map((rule, index) => (
-        <div className="rule-row" key={`rule-${index}`}>
+        <div className="rule-row rule-block" key={`rule-${index}`}>
           <select
             aria-label={`Rule ${index + 1} first class`}
             value={rule.a_class}
@@ -117,21 +127,46 @@ export default function RulesEditor({ state, onStateChange }: RulesEditorProps) 
           <select
             aria-label={`Rule ${index + 1} rotation`}
             value={rule.rotation.kind}
-            onChange={(event) =>
+            onChange={(event) => {
+              const kind = event.currentTarget.value as AllowedRotation["kind"];
               onStateChange(
                 updateCompatibilityRule(state, index, {
                   ...rule,
-                  rotation:
-                    event.currentTarget.value === "free"
-                      ? { kind: "free" }
-                      : { kind: "locked" },
+                  rotation: rotationFromKind(kind, rule.rotation),
                 }),
-              )
-            }
+              );
+            }}
           >
             <option value="locked">Locked</option>
+            <option value="steps_deg">Steps (deg)</option>
             <option value="free">Free</option>
           </select>
+          {rule.rotation.kind === "steps_deg" ? (
+            <input
+              aria-label={`Rule ${index + 1} steps`}
+              placeholder="0, 90, 180, 270"
+              value={rule.rotation.values.join(", ")}
+              onChange={(event) => {
+                const values = event.currentTarget.value
+                  .split(",")
+                  .map((part) => Number(part.trim()))
+                  .filter((value) => Number.isFinite(value));
+                onStateChange(
+                  updateCompatibilityRule(state, index, {
+                    ...rule,
+                    rotation: { kind: "steps_deg", values },
+                  }),
+                );
+              }}
+            />
+          ) : null}
+          <button
+            type="button"
+            aria-label={`Delete rule ${index + 1}`}
+            onClick={() => onStateChange(removeCompatibilityRule(state, index))}
+          >
+            Delete
+          </button>
         </div>
       ))}
     </section>

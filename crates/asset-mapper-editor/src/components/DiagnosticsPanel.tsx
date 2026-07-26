@@ -1,4 +1,5 @@
-import type { EditorPackState } from "../types";
+import { selectDiagnosticTarget } from "../editorState";
+import type { Diagnostic, EditorPackState } from "../types";
 
 interface DiagnosticsPanelProps {
   state: EditorPackState | null;
@@ -7,6 +8,7 @@ interface DiagnosticsPanelProps {
   onValidate: () => void;
   onSave: () => void;
   onExport: () => void;
+  onStateChange: (state: EditorPackState) => void;
 }
 
 export default function DiagnosticsPanel({
@@ -16,8 +18,16 @@ export default function DiagnosticsPanel({
   onValidate,
   onSave,
   onExport,
+  onStateChange,
 }: DiagnosticsPanelProps) {
   const diagnostics = state?.validation.diagnostics ?? [];
+
+  function onDiagnosticClick(diagnostic: Diagnostic) {
+    if (!state) {
+      return;
+    }
+    onStateChange(selectDiagnosticTarget(state, diagnostic));
+  }
 
   return (
     <section className="diagnostics-panel" aria-label="Validation diagnostics">
@@ -41,8 +51,22 @@ export default function DiagnosticsPanel({
         <ul className="diagnostics-list">
           {diagnostics.map((diagnostic, index) => (
             <li key={`${diagnostic.code}-${index}`} className={diagnostic.severity}>
-              <strong>{diagnostic.code}</strong>
-              <span>{diagnostic.message}</span>
+              <button
+                type="button"
+                className="diagnostic-item"
+                onClick={() => onDiagnosticClick(diagnostic)}
+              >
+                <strong>{diagnostic.code}</strong>
+                <span>{diagnostic.message}</span>
+                {diagnostic.asset_id ? (
+                  <span className="muted small">
+                    {diagnostic.asset_id}
+                    {diagnostic.connector_id
+                      ? ` / ${diagnostic.connector_id}`
+                      : ""}
+                  </span>
+                ) : null}
+              </button>
             </li>
           ))}
         </ul>

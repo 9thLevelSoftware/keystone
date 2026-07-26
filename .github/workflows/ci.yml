@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate phase2 GLB fixture
+        run: node crates/asset-mapper-editor/scripts/write-phase2-glb-fixture.mjs
+        working-directory: ${{ github.workspace }}
+      - name: cargo fmt
+        run: cargo fmt -- --check
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
+      - name: WASM crate tests (native host)
+        run: cargo test -p asset-mapper-wasm
+
+  editor:
+    name: Editor (test, build)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: crates/asset-mapper-editor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: crates/asset-mapper-editor/package-lock.json
+      - name: npm ci
+        run: npm ci
+      - name: Generate phase2 fixture
+        run: npm run fixture:phase2
+      - name: npm test
+        run: npm test
+      - name: npm run build
+        run: npm run build

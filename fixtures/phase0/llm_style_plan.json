@@ -1,0 +1,12 @@
+{
+  "root_asset_id": "corridor_a",
+  "operations": [
+    {
+      "placed_asset_id": "corridor_b",
+      "placed_connector_id": "back",
+      "anchor_asset_id": "corridor_a",
+      "anchor_connector_id": "front",
+      "rotation_choice_deg": 0.0
+    }
+  ]
+}

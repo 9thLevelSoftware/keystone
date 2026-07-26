@@ -8,21 +8,25 @@ Keystone is the canonical metadata layer for jigsaw-style asset packs: it captur
 
 ## Status
 
-**Pre-release / Phase 0–1 CLI.** The `asset-mapper` binary is functional and ships with `init`, `index`, `validate`, `bundle`, and `resolve` subcommands. An interactive editor (Phase 2) is in progress on the `codex/phase-2-editor-mvp` branch but is **not** on `main` yet.
+**v0.1.0 production cut.** Phases 0–3 ship with production gates: license + provenance + controlled vocabulary (schema v2), full editor pack settings UI, WASM validate/resolve/bundle bindings, CI, and dual licensing. Living status: [`docs/superpowers/STATUS.md`](docs/superpowers/STATUS.md).
 
 | Phase | Scope | Status |
 | --- | --- | --- |
-| 0 | Core schema, validator, LLM bundle, connector resolver | Shipped on `main` |
-| 1 | Headless CLI for pack folder workflow | Shipped on `main` |
-| 2 | Interactive editor MVP | Branched (`codex/phase-2-editor-mvp`) |
+| 0 | Core schema, validator, LLM bundle, connector resolver | Done |
+| 1 | Headless CLI for pack folder workflow | Done |
+| 2 | Interactive editor MVP | Done |
+| 3 | Engine/export integration, 2D authoring, migrations | Done |
+| Prod gates | Provenance, vocabulary, WASM, full editor UI | Done (binary FBX bounds still partial) |
 
 ## Workspace
 
 Cargo workspace, edition 2024, MSRV `1.85`, dual-licensed MIT OR Apache-2.0:
 
-- **`asset-mapper-core`** — canonical schema (`Pack`, `Asset`, `Connector`, classes, compatibility rules), `validate_pack`, content hashing, the `LlmBundle` exporter, and the deterministic `resolve_plan` connector resolver. No I/O dependencies.
-- **`asset-mapper-io`** — pack folder indexing, sidecar `*.assetmap.json` read/write, pack source validation.
-- **`asset-mapper-cli`** — the `asset-mapper` binary, built on `clap` with derive subcommands.
+- **`asset-mapper-core`** — canonical schema, `validate_pack`, content hashing, `LlmBundle`, `resolve_plan` (3D + Frame2d), migrations, engine/glTF export helpers, authoring suggestions. No I/O dependencies.
+- **`asset-mapper-io`** — pack folder indexing, bounds measurement (glTF/OBJ/images), sidecar read/write, accept-drift, migration IO.
+- **`asset-mapper-cli`** — the `asset-mapper` binary (`clap` derive subcommands).
+- **`asset-mapper-editor`** — Tauri v2 desktop editor (React + Three.js) over the same core/IO crates.
+- **`asset-mapper-wasm`** — WASM JSON APIs: `validate_pack_json`, `resolve_plan_json`, `bundle_pack_json`.
 
 ## Install / Build
 
@@ -45,11 +49,16 @@ cargo test --workspace
 asset-mapper <COMMAND>
 
 Commands:
-  init      Initialize a new pack folder
-  index     Index an existing pack folder
-  validate  Validate a pack (sidecar JSON or pack folder)
-  bundle    Export a compact LLM-readable context bundle
-  resolve   Resolve an assembly plan into a placed scene
+  init                 Initialize a new pack folder
+  index                Index an existing pack folder
+  validate             Validate a pack (sidecar JSON or pack folder)
+  bundle               Export a compact LLM-readable context bundle
+  resolve              Resolve an assembly plan into a placed scene
+  accept-drift         Accept content-hash drift after review
+  measure-bounds       Re-measure mesh/image bounds
+  migrate              Migrate pack sidecar to current schema version
+  export-engine        Export Unreal/Unity/Godot/CSV connector tables
+  export-gltf-extras   Write glTF Keystone extras companion JSON
 ```
 
 ### `init` — create a new pack folder
@@ -58,7 +67,7 @@ Commands:
 asset-mapper init --name "My Pack" ./my-pack
 ```
 
-Writes a starter pack layout, including the sidecar metadata file, into the target folder.
+Writes a starter pack layout, including the sidecar metadata file, into the target folder. When glTF/image sources are readable, real AABB/pixel bounds are stored and `BoundsPlaceholder` is omitted.
 
 ### `index` — index an existing pack folder
 
@@ -66,17 +75,30 @@ Writes a starter pack layout, including the sidecar metadata file, into the targ
 asset-mapper index ./my-pack
 ```
 
-Walks the pack folder and prints a JSON reconciliation report (asset presence, content hashes, sidecar freshness).
+Walks the pack folder and prints a JSON reconciliation report (asset presence, content hashes, sidecar freshness). Preserves manual metadata.
+
+### `accept-drift` — accept hash drift after review
+
+```bash
+asset-mapper accept-drift ./my-pack
+asset-mapper accept-drift ./my-pack --asset wall
+asset-mapper accept-drift ./my-pack --clear-connectors
+```
+
+Updates `content_hash` from disk. Keeps connectors by default; use `--clear-connectors` to drop them.
+
+### `measure-bounds` — re-measure geometry
+
+```bash
+asset-mapper measure-bounds ./my-pack
+```
 
 ### `validate` — check a pack for completeness and consistency
 
 ```bash
 asset-mapper validate ./my-pack
-# or against a sidecar file directly:
-asset-mapper validate ./my-pack/pack.assetmap.json
+asset-mapper validate ./my-pack/.asset-mapper/pack.assetmap.json
 ```
-
-Detects: missing connector classes, classes with no valid rule, degenerate connector frames, missing bounds or coordinate convention, non-normalized 3D orientation, contradictory orientation metadata, content-hash drift, and invalid compatibility rules. Exits non-zero when any error-severity diagnostic is reported. JSON output.
 
 ### `bundle` — export a compact LLM context bundle
 
@@ -84,15 +106,53 @@ Detects: missing connector classes, classes with no valid rule, degenerate conne
 asset-mapper bundle ./my-pack
 ```
 
-Emits a `LlmBundle` JSON document summarizing each asset's dimensions, semantic tags, affordances, placement constraints, and connectors. Designed to be the "jigsaw puzzle view" of the pack that a thinking model can consume to plan an assembly.
-
 ### `resolve` — resolve an assembly plan into a placed scene
 
 ```bash
-asset-mapper resolve --plan ./my-plan.json ./my-pack
+asset-mapper resolve ./my-pack ./my-plan.json
 ```
 
-Given an `AssemblyPlan` describing which connectors should attach to which, computes the required transforms deterministically. Fails with a structured `ResolveError` (e.g. incompatible classes, conflicting constraints) rather than producing a silently-wrong placement.
+Supports Frame3d (full 3D mating) and Frame2d (XY-plane attachments). Mixed 2D/3D pairs are rejected.
+
+### `migrate` — schema migration
+
+```bash
+asset-mapper migrate ./my-pack
+asset-mapper migrate ./legacy.assetmap.json
+```
+
+### `export-engine` / `export-gltf-extras`
+
+```bash
+asset-mapper export-engine ./my-pack --target unity
+asset-mapper export-engine ./my-pack --target unreal --output unreal.json
+asset-mapper export-engine ./my-pack --target godot
+asset-mapper export-engine ./my-pack --target csv
+asset-mapper export-gltf-extras ./my-pack --output my-pack.keystone.json
+```
+
+See [`docs/superpowers/RELEASE.md`](docs/superpowers/RELEASE.md) for format notes and release packaging.
+
+## Editor (Phase 2)
+
+Desktop authoring UI for the same sidecar model:
+
+```bash
+cd crates/asset-mapper-editor
+npm install
+npm run fixture:phase2   # generates fixtures/phase2 modular .glb if needed
+npm run tauri:dev
+```
+
+Open or initialize a pack folder, preview `.glb`/`.gltf`, place 3D/2D connectors, edit classes/rules (including `steps_deg`), semantic tags, review flags, measure bounds from mesh, accept hash drift, validate, save `.asset-mapper/pack.assetmap.json`, and export an LLM bundle. Session UX includes dirty confirmation, reload, and discard.
+
+Frontend unit tests and production build:
+
+```bash
+cd crates/asset-mapper-editor
+npm test
+npm run build
+```
 
 ## Pack format
 
@@ -100,18 +160,24 @@ A pack is a folder containing assets plus an `*.assetmap.json` sidecar that reco
 
 - pack identity, schema version, coordinate convention, default units
 - per-asset records: dimensions, bounds, orientation, pivot, content hash
-- connector definitions as precise local-space frames, tagged with a `class`
-- connector classes and **class-based** compatibility rules (e.g. `wall_edge` ↔ `wall_edge`, `doorway` ↔ `door_frame`)
+- connector definitions as precise local-space frames (`Frame3d` or `Frame2d`), tagged with a `class`
+- connector classes and **class-based** compatibility rules
 - semantic tags, affordances, and placement constraints
 - optional provenance / license summary
 
-A working example lives in [`fixtures/phase0/simple_pack.assetmap.json`](fixtures/phase0/simple_pack.assetmap.json). A negative test case (unknown connector class) is at [`fixtures/phase0/invalid_pack_unknown_class.assetmap.json`](fixtures/phase0/invalid_pack_unknown_class.assetmap.json).
+Working examples:
+
+- [`fixtures/phase0/simple_pack.assetmap.json`](fixtures/phase0/simple_pack.assetmap.json)
+- [`fixtures/phase0/llm_style_plan.json`](fixtures/phase0/llm_style_plan.json) (LLM-style assembly plan proof)
+- Negative case: [`fixtures/phase0/invalid_pack_unknown_class.assetmap.json`](fixtures/phase0/invalid_pack_unknown_class.assetmap.json)
+
+LLM plan proof docs: [`docs/superpowers/llm-plan-proof.md`](docs/superpowers/llm-plan-proof.md).
 
 ## Design contract
 
 - **Metadata is the source of truth.** The editor and downstream SDKs call the resolver — they do not reimplement transform math.
-- **Validation is deterministic and reportable.** Diagnostics are structured JSON with a `Severity` (`Error` / `Warning` / `Info`).
-- **Resolver is deterministic.** Given a valid plan, output is reproducible across platforms; given an invalid one, it returns a structured `ResolveError`.
+- **Validation is deterministic and reportable.** Diagnostics are structured JSON with a `Severity` (`Error` / `Warning`).
+- **Resolver is deterministic.** Given a valid plan, output is reproducible; given an invalid one, it returns a structured `ResolveError`.
 - **Compatibility is class-based, not pairwise.** Rules apply to all members of a connector class so packs scale.
 
 The full design rationale is in [`docs/superpowers/specs/2026-06-15-asset-pack-semantic-mapper-design.md`](docs/superpowers/specs/2026-06-15-asset-pack-semantic-mapper-design.md).
@@ -120,20 +186,22 @@ The full design rationale is in [`docs/superpowers/specs/2026-06-15-asset-pack-s
 
 ```
 crates/
-  asset-mapper-core/      schema + validator + resolver + LLM bundle
-  asset-mapper-io/        pack folder I/O and sidecar read/write
+  asset-mapper-core/      schema + validator + resolver + LLM bundle + export/migrate
+  asset-mapper-io/        pack folder I/O, bounds, sidecar
   asset-mapper-cli/       `asset-mapper` binary
-docs/superpowers/
-  specs/                  design specs
-  plans/                  phased implementation plans
-fixtures/phase0/          example packs and assembly plans used in tests
+  asset-mapper-editor/    Tauri desktop editor (frontend + src-tauri)
+docs/superpowers/         status, specs, release notes, LLM proof
+fixtures/                 phase0/phase2 fixtures
+LICENSE-MIT
+LICENSE-APACHE
+CHANGELOG.md
 ```
 
 ## License
 
-Dual-licensed under either of:
+Licensed under either of:
 
-- [MIT License](https://opensource.org/licenses/MIT)
-- [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.

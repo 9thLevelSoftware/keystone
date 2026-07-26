@@ -4,9 +4,21 @@ import {
   addConnector,
   addConnectorClass,
   addCompatibilityRule,
+  clearAllReviewFlags,
+  duplicateConnector,
+  eulerDegToQuat,
   groupDiagnostics,
+  quatToEulerDeg,
+  removeCompatibilityRule,
   removeConnector,
+  removeConnectorClass,
+  rotationFromKind,
   selectAsset,
+  selectDiagnosticTarget,
+  setReviewFlag,
+  snapConnectorToBoundsFace,
+  suggestClassFromName,
+  updateAssetMetadata,
   updateConnector,
   updateConnectorClass,
   updateConnectorFrame,
@@ -34,7 +46,7 @@ function baseState(): EditorPackState {
       },
     ],
     pack: {
-      schema_version: 1,
+      schema_version: 2,
       pack_id: "pack",
       display_name: "Pack",
       coordinate_convention: {
@@ -43,6 +55,14 @@ function baseState(): EditorPackState {
         forward_axis: "pos_z",
       },
       default_units: "meters",
+      license_summary: "MIT OR Apache-2.0",
+      provenance: { notes: "test" },
+      vocabulary: {
+        semantic_tags: ["wall", "door"],
+        affordances: ["openable"],
+        placement_constraints: ["grounded"],
+        allow_namespaced_extensions: true,
+      },
       connector_classes: [],
       compatibility_rules: [],
       assets: [
@@ -92,7 +112,7 @@ describe("editorState", () => {
     expect(withConnector.pack.assets[0].connectors[0]).toMatchObject({
       connector_id: "connector_1",
       display_name: "Connector 1",
-      class: "",
+      class: "wall_edge",
       role: "symmetric",
       frame: {
         kind: "frame3d",
@@ -313,5 +333,103 @@ describe("editorState", () => {
         },
       ],
     });
+  });
+
+  it("selects diagnostic targets, deletes rules/classes, and manages review flags", () => {
+    const withClass = addConnectorClass(baseState(), "doorway", "Doorway");
+    const withRule = addCompatibilityRule(withClass, "doorway", "doorway");
+    const withConnector = addConnector(withRule, "wall");
+    const selected = selectDiagnosticTarget(withConnector, {
+      code: "x",
+      severity: "error",
+      message: "m",
+      asset_id: "wall",
+      connector_id: "connector_1",
+    });
+    expect(selected.selectedConnectorId).toBe("connector_1");
+
+    const noRule = removeCompatibilityRule(withRule, 0);
+    expect(noRule.pack.compatibility_rules).toHaveLength(0);
+
+    const noClass = removeConnectorClass(withClass, 0);
+    expect(noClass.pack.connector_classes).toHaveLength(0);
+
+    const flagged = setReviewFlag(baseState(), "wall", "bounds_placeholder", true);
+    expect(flagged.pack.assets[0].review_flags).toContain("bounds_placeholder");
+    const cleared = clearAllReviewFlags(flagged, "wall");
+    expect(cleared.pack.assets[0].review_flags).toEqual([]);
+  });
+
+  it("supports steps_deg rotation, duplicate, snap, and orientation helpers", () => {
+    const withClass = addConnectorClass(baseState(), "wall_edge", "Wall Edge");
+    const withRule = addCompatibilityRule(withClass, "wall_edge", "wall_edge");
+    const stepped = updateCompatibilityRule(withRule, 0, {
+      a_class: "wall_edge",
+      b_class: "wall_edge",
+      rotation: rotationFromKind("steps_deg"),
+    });
+    expect(stepped.pack.compatibility_rules[0].rotation).toEqual({
+      kind: "steps_deg",
+      values: [0, 90, 180, 270],
+    });
+
+    const withConnector = addConnector(withClass, "wall");
+    const duplicated = duplicateConnector(withConnector, "wall", "connector_1");
+    expect(duplicated.pack.assets[0].connectors).toHaveLength(2);
+    expect(duplicated.selectedConnectorId).toBe("connector_2");
+
+    const snapped = snapConnectorToBoundsFace(withConnector, "wall", "connector_1", "pos_z");
+    expect(snapped.pack.assets[0].connectors[0].frame).toMatchObject({
+      kind: "frame3d",
+      position: [0, 0, 0.5],
+    });
+    expect(snapped.pack.assets[0].connectors[0].mating_axis).toBe("pos_z");
+
+    const quat = eulerDegToQuat([0, 90, 0]);
+    const euler = quatToEulerDeg(quat);
+    expect(Math.abs(euler[1] - 90)).toBeLessThan(0.1);
+
+    for (const input of [
+      [30, 45, 60],
+      [10, -20, 30],
+      [-15, 25, -35],
+    ] as const) {
+      const q = eulerDegToQuat([...input]);
+      const back = quatToEulerDeg(q);
+      const q2 = eulerDegToQuat(back);
+      const l1 =
+        Math.abs(q[0] - q2[0]) +
+        Math.abs(q[1] - q2[1]) +
+        Math.abs(q[2] - q2[2]) +
+        Math.abs(q[3] - q2[3]);
+      // Quaternion may flip sign; also compare negated.
+      const l1Neg =
+        Math.abs(q[0] + q2[0]) +
+        Math.abs(q[1] + q2[1]) +
+        Math.abs(q[2] + q2[2]) +
+        Math.abs(q[3] + q2[3]);
+      expect(Math.min(l1, l1Neg)).toBeLessThan(1e-4);
+      const e2 = quatToEulerDeg(q2);
+      expect(Math.abs(back[0] - e2[0])).toBeLessThan(0.05);
+      expect(Math.abs(back[1] - e2[1])).toBeLessThan(0.05);
+      expect(Math.abs(back[2] - e2[2])).toBeLessThan(0.05);
+    }
+
+    expect(suggestClassFromName("Brick Wall")).toBe("wall_edge");
+
+    const tagged = updateAssetMetadata(baseState(), "wall", {
+      semantic_tags: ["modular"],
+      affordances: ["cover"],
+      placement_constraints: ["upright_only"],
+    });
+    expect(tagged.pack.assets[0].semantic_tags).toEqual(["modular"]);
+    expect(tagged.dirty).toBe(true);
+  });
+
+  it("adds 2d connectors for sprites", () => {
+    const state = baseState();
+    state.pack.assets[0].asset_type = "sprite2d";
+    const with2d = addConnector(state, "wall", "frame2d");
+    expect(with2d.pack.assets[0].connectors[0].frame.kind).toBe("frame2d");
   });
 });

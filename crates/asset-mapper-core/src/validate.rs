@@ -21,6 +21,30 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
         ));
     }
 
+    if pack.license_summary.trim().is_empty() {
+        diagnostics.push(Diagnostic::error(
+            "missing_license_summary",
+            "pack license_summary is required for production packs",
+        ));
+    }
+
+    if pack.provenance.is_empty() {
+        diagnostics.push(Diagnostic::error(
+            "missing_provenance",
+            "pack provenance (source, author, created_at, or notes) is required",
+        ));
+    }
+
+    if pack.vocabulary.semantic_tags.is_empty()
+        && pack.vocabulary.affordances.is_empty()
+        && pack.vocabulary.placement_constraints.is_empty()
+    {
+        diagnostics.push(Diagnostic::error(
+            "empty_vocabulary",
+            "pack vocabulary must define at least one controlled term list",
+        ));
+    }
+
     let mut class_names = HashSet::new();
     for class in &pack.connector_classes {
         if !class_names.insert(class.class.as_str()) {
@@ -140,6 +164,34 @@ pub fn validate_pack(pack: &PackRecord) -> ValidationReport {
             &mut diagnostics,
             asset.asset_id.as_str(),
             asset.review_flags.as_slice(),
+        );
+
+        validate_vocab_terms(
+            &mut diagnostics,
+            asset.asset_id.as_str(),
+            "semantic_tags",
+            "unknown_semantic_tag",
+            &asset.semantic_tags,
+            &pack.vocabulary.semantic_tags,
+            pack.vocabulary.allow_namespaced_extensions,
+        );
+        validate_vocab_terms(
+            &mut diagnostics,
+            asset.asset_id.as_str(),
+            "affordances",
+            "unknown_affordance",
+            &asset.affordances,
+            &pack.vocabulary.affordances,
+            pack.vocabulary.allow_namespaced_extensions,
+        );
+        validate_vocab_terms(
+            &mut diagnostics,
+            asset.asset_id.as_str(),
+            "placement_constraints",
+            "unknown_placement_constraint",
+            &asset.placement_constraints,
+            &pack.vocabulary.placement_constraints,
+            pack.vocabulary.allow_namespaced_extensions,
         );
 
         let mut connector_ids = HashSet::new();
@@ -329,5 +381,46 @@ fn validate_review_flags(
             ),
         };
         diagnostics.push(Diagnostic::warning(code, message).with_asset(asset_id.to_owned()));
+    }
+}
+
+fn validate_vocab_terms(
+    diagnostics: &mut Vec<Diagnostic>,
+    asset_id: &str,
+    field: &str,
+    code: &str,
+    terms: &[String],
+    allowed: &[String],
+    allow_namespaced: bool,
+) {
+    for term in terms {
+        let trimmed = term.trim();
+        if trimmed.is_empty() {
+            diagnostics.push(
+                Diagnostic::error(
+                    "empty_vocab_term",
+                    format!("asset has an empty entry in {field}"),
+                )
+                .with_asset(asset_id.to_owned()),
+            );
+            continue;
+        }
+        let listed = allowed.iter().any(|entry| entry == trimmed);
+        let namespaced_ok = allow_namespaced
+            && trimmed.contains(':')
+            && trimmed.split_once(':').is_some_and(|(ns, rest)| {
+                !ns.trim().is_empty() && !rest.trim().is_empty() && !rest.contains(':')
+            });
+        if !listed && !namespaced_ok {
+            diagnostics.push(
+                Diagnostic::error(
+                    code,
+                    format!(
+                        "asset {field} term `{trimmed}` is not in the pack controlled vocabulary"
+                    ),
+                )
+                .with_asset(asset_id.to_owned()),
+            );
+        }
     }
 }

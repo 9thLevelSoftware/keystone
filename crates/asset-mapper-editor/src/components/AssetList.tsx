@@ -6,6 +6,8 @@ interface AssetListProps {
   onOpen: () => void;
   onInit: () => void;
   onIndex: () => void;
+  onReload: () => void;
+  onDiscard: () => void;
   onSelectAsset: (assetId: string) => void;
 }
 
@@ -15,6 +17,8 @@ export default function AssetList({
   onOpen,
   onInit,
   onIndex,
+  onReload,
+  onDiscard,
   onSelectAsset,
 }: AssetListProps) {
   return (
@@ -29,10 +33,23 @@ export default function AssetList({
         <button type="button" disabled={busy || !state} onClick={onIndex}>
           Index
         </button>
+        <button type="button" disabled={busy || !state} onClick={onReload}>
+          Reload
+        </button>
+        <button
+          type="button"
+          disabled={busy || !state || !state.dirty}
+          onClick={onDiscard}
+        >
+          Discard
+        </button>
       </div>
       {state ? (
         <>
-          <h2>{state.pack.display_name}</h2>
+          <h2>
+            {state.pack.display_name}
+            {state.dirty ? " *" : ""}
+          </h2>
           <p className="muted">{state.packRoot}</p>
           <ul className="asset-list">
             {state.pack.assets.map((asset) => {
@@ -55,6 +72,9 @@ export default function AssetList({
                       {asset.connectors.length} connectors
                       {status?.hashMatches === false ? " / drifted" : ""}
                       {status?.exists === false ? " / missing" : ""}
+                      {asset.review_flags.length > 0
+                        ? ` / ${asset.review_flags.length} flags`
+                        : ""}
                     </span>
                   </button>
                 </li>

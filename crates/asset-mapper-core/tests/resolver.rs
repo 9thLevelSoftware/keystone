@@ -207,7 +207,7 @@ fn rejects_incompatible_connector_classes() {
 }
 
 #[test]
-fn rejects_frame2d_connectors() {
+fn rejects_mixed_2d_and_3d_connector_frames() {
     let mut pack = load_pack();
     let connector = pack
         .assets
@@ -229,10 +229,10 @@ fn rejects_frame2d_connectors() {
 
     assert!(matches!(
         error,
-        ResolveError::Non3dConnector {
-            asset_id,
-            connector_id,
-        } if asset_id == "corridor_b" && connector_id == "back"
+        ResolveError::MixedConnectorDimensions {
+            placed_connector_id,
+            anchor_connector_id,
+        } if placed_connector_id == "back" && anchor_connector_id == "front"
     ));
 }
 

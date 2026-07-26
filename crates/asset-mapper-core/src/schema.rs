@@ -1,8 +1,135 @@
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 pub type Vec2 = [f32; 2];
 pub type Vec3 = [f32; 3];
 pub type QuatXyzw = [f32; 4];
+
+/// Default controlled vocabulary from the product design (compact initial set).
+pub fn default_semantic_tags() -> Vec<String> {
+    [
+        "wall",
+        "floor",
+        "corner",
+        "door",
+        "window",
+        "walkable",
+        "cover",
+        "decorative",
+        "hazard",
+        "lootable",
+        "entry",
+        "exit",
+        "corridor",
+        "roof",
+        "prop",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+pub fn default_affordances() -> Vec<String> {
+    [
+        "block_movement",
+        "provide_cover",
+        "openable",
+        "climbable",
+        "sittable",
+        "interactable",
+        "light_source",
+        "walkable",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+pub fn default_placement_constraints() -> Vec<String> {
+    [
+        "grounded",
+        "wall_mounted",
+        "ceiling_mounted",
+        "indoor_only",
+        "outdoor_only",
+        "requires_floor",
+        "requires_wall",
+        "upright_only",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
+/// Pack-level provenance for auditability and redistribution context.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct PackProvenance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+impl PackProvenance {
+    pub fn is_empty(&self) -> bool {
+        self.source.as_ref().is_none_or(|s| s.trim().is_empty())
+            && self.author.as_ref().is_none_or(|s| s.trim().is_empty())
+            && self.created_at.as_ref().is_none_or(|s| s.trim().is_empty())
+            && self.notes.as_ref().is_none_or(|s| s.trim().is_empty())
+    }
+}
+
+/// Controlled vocabularies for semantic tags, affordances, and placement constraints.
+///
+/// Tags may use namespaced extensions (`project:custom_tag`) when
+/// [`ControlledVocabulary::allow_namespaced_extensions`] is true.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct ControlledVocabulary {
+    #[serde(default)]
+    pub semantic_tags: Vec<String>,
+    #[serde(default)]
+    pub affordances: Vec<String>,
+    #[serde(default)]
+    pub placement_constraints: Vec<String>,
+    /// When true, tags containing `:` are allowed even if not listed.
+    #[serde(default = "default_true")]
+    pub allow_namespaced_extensions: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for ControlledVocabulary {
+    fn default() -> Self {
+        Self {
+            semantic_tags: default_semantic_tags(),
+            affordances: default_affordances(),
+            placement_constraints: default_placement_constraints(),
+            allow_namespaced_extensions: true,
+        }
+    }
+}
+
+impl ControlledVocabulary {
+    pub fn allows_term(&self, list: &[String], term: &str) -> bool {
+        let term = term.trim();
+        if term.is_empty() {
+            return false;
+        }
+        if list.iter().any(|entry| entry == term) {
+            return true;
+        }
+        self.allow_namespaced_extensions
+            && term.contains(':')
+            && term.split_once(':').is_some_and(|(ns, rest)| {
+                !ns.trim().is_empty() && !rest.trim().is_empty() && !rest.contains(':')
+            })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 pub struct PackRecord {
@@ -11,6 +138,13 @@ pub struct PackRecord {
     pub display_name: String,
     pub coordinate_convention: CoordinateConvention,
     pub default_units: Unit,
+    /// Short human-readable license summary (required for production packs).
+    #[serde(default)]
+    pub license_summary: String,
+    #[serde(default)]
+    pub provenance: PackProvenance,
+    #[serde(default)]
+    pub vocabulary: ControlledVocabulary,
     pub connector_classes: Vec<ConnectorClass>,
     pub compatibility_rules: Vec<CompatibilityRule>,
     pub assets: Vec<AssetRecord>,
@@ -130,7 +264,7 @@ pub enum Pivot {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+    Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewFlag {

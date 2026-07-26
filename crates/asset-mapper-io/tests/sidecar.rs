@@ -17,6 +17,12 @@ fn minimal_pack() -> PackRecord {
             forward_axis: Axis3::PosZ,
         },
         default_units: Unit::Meters,
+        license_summary: "MIT OR Apache-2.0".to_owned(),
+        provenance: asset_mapper_core::PackProvenance {
+            notes: Some("test fixture".to_owned()),
+            ..asset_mapper_core::PackProvenance::default()
+        },
+        vocabulary: asset_mapper_core::ControlledVocabulary::default(),
         connector_classes: Vec::new(),
         compatibility_rules: Vec::new(),
         assets: Vec::new(),

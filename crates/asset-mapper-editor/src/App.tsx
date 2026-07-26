@@ -6,11 +6,13 @@ import Inspector from "./components/Inspector";
 import Viewport from "./components/Viewport";
 import { selectAsset, selectConnector } from "./editorState";
 import {
+  acceptHashDrift,
   chooseBundleOutputPath,
   choosePackFolder,
   exportBundle,
   indexPackFolder,
   initPackFolder,
+  measurePackBounds,
   openPackFolder,
   savePack,
   validatePack,
@@ -44,6 +46,15 @@ export default function App() {
     [selectedAsset, state?.selectedConnectorId],
   );
 
+  function confirmIfDirty(): boolean {
+    if (!state?.dirty) {
+      return true;
+    }
+    return window.confirm(
+      "You have unsaved changes. Continue and discard local edits?",
+    );
+  }
+
   async function runAction(label: string, action: () => Promise<void>) {
     setBusy(true);
     setStatus(`${label}...`);
@@ -64,6 +75,10 @@ export default function App() {
         state={state}
         onOpen={() =>
           runAction("Opening pack", async () => {
+            if (!confirmIfDirty()) {
+              setStatus("Open cancelled.");
+              return;
+            }
             const folder = await choosePackFolder();
             if (!folder) {
               setStatus("Open cancelled.");
@@ -77,6 +92,10 @@ export default function App() {
         }
         onInit={() =>
           runAction("Initializing pack", async () => {
+            if (!confirmIfDirty()) {
+              setStatus("Init cancelled.");
+              return;
+            }
             const folder = await choosePackFolder();
             if (!folder) {
               setStatus("Init cancelled.");
@@ -99,12 +118,44 @@ export default function App() {
             if (!state) {
               return;
             }
+            if (!confirmIfDirty()) {
+              setStatus("Index cancelled.");
+              return;
+            }
 
             const result = await indexPackFolder(state.packRoot);
             setState(result.state);
             setStatus(
               `Indexed pack: ${result.report.new_assets.length} new, ${result.report.drifted_assets.length} drifted.`,
             );
+          })
+        }
+        onReload={() =>
+          runAction("Reloading pack", async () => {
+            if (!state) {
+              return;
+            }
+            if (!confirmIfDirty()) {
+              setStatus("Reload cancelled.");
+              return;
+            }
+            const opened = await openPackFolder(state.packRoot);
+            setState(opened);
+            setStatus(`Reloaded ${opened.pack.display_name}.`);
+          })
+        }
+        onDiscard={() =>
+          runAction("Discarding changes", async () => {
+            if (!state) {
+              return;
+            }
+            if (!window.confirm("Discard all unsaved changes?")) {
+              setStatus("Discard cancelled.");
+              return;
+            }
+            const opened = await openPackFolder(state.packRoot);
+            setState(opened);
+            setStatus("Discarded local changes.");
           })
         }
         onSelectAsset={(assetId) => {
@@ -124,11 +175,56 @@ export default function App() {
             setState(selectConnector(state, assetId, connectorId));
           }
         }}
+        onMeasureBounds={() =>
+          runAction("Measuring bounds", async () => {
+            if (!state) {
+              return;
+            }
+            // Disk-backed measure reloads from sidecar — refuse silent discard.
+            if (!confirmIfDirty()) {
+              setStatus("Measure cancelled (unsaved changes kept).");
+              return;
+            }
+            const result = await measurePackBounds(state.packRoot);
+            setState({
+              ...result.state,
+              selectedAssetId: state.selectedAssetId,
+              selectedConnectorId: state.selectedConnectorId,
+            });
+            setStatus(
+              `Measured ${result.report.measured.length} asset(s); ` +
+                `${result.report.failed.length} failed; ` +
+                `${result.report.missing.length} missing.`,
+            );
+          })
+        }
+        onAcceptDrift={() =>
+          runAction("Accepting hash drift", async () => {
+            if (!state || !selectedAsset) {
+              return;
+            }
+            // Disk-backed accept-drift reloads from sidecar — refuse silent discard.
+            if (!confirmIfDirty()) {
+              setStatus("Accept drift cancelled (unsaved changes kept).");
+              return;
+            }
+            const result = await acceptHashDrift(state.packRoot, [
+              selectedAsset.asset_id,
+            ]);
+            setState({
+              ...result.state,
+              selectedAssetId: state.selectedAssetId,
+              selectedConnectorId: state.selectedConnectorId,
+            });
+            setStatus(`Accepted hash drift for ${selectedAsset.asset_id}.`);
+          })
+        }
       />
       <DiagnosticsPanel
         state={state}
         status={status}
         busy={busy}
+        onStateChange={setState}
         onValidate={() =>
           runAction("Validating pack", async () => {
             if (!state) {
