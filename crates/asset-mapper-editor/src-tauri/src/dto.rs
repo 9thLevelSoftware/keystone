@@ -62,7 +62,8 @@ pub struct AnalyzeEditorResult {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveEditorResult {
-    pub scene: asset_mapper_core::ResolvedScene,
+    pub scene: Option<asset_mapper_core::ResolvedScene>,
+    pub error: Option<asset_mapper_core::ResolveErrorReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -70,4 +71,5 @@ pub struct ResolveEditorResult {
 pub struct ProposeAssemblyEditorResult {
     pub report: asset_mapper_core::ProposeAssemblyReport,
     pub scene: Option<asset_mapper_core::ResolvedScene>,
+    pub error: Option<asset_mapper_core::ResolveErrorReport>,
 }

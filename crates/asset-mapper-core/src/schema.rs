@@ -310,6 +310,11 @@ pub struct ConnectorRecord {
     pub mating_axis: Axis3,
     pub up_reference: Axis3,
     pub snap_tolerance: f32,
+    /// Face-plane dimensions `[width, height]` in pack units for LLM / size pairing.
+    ///
+    /// Optional so existing packs load without a schema version bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face_size: Option<Vec2>,
 }
 
 #[derive(

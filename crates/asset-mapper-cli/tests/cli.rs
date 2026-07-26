@@ -113,7 +113,23 @@ fn resolve_rejects_invalid_connector_orientation_without_null_scene_json() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid connector orientation"))
+        .stderr(predicate::str::contains("\"code\""))
+        .stderr(predicate::str::contains("fix_pack"))
         .stdout(predicate::str::contains("null").not());
+}
+
+#[test]
+fn vibe_ready_reports_on_phase0_pack() {
+    let mut command = Command::cargo_bin("asset-mapper").expect("binary exists");
+    command
+        .args([
+            "vibe-ready",
+            &fixture_path("fixtures/phase0/simple_pack.assetmap.json"),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"score\""))
+        .stdout(predicate::str::contains("\"ready\""));
 }
 
 #[test]

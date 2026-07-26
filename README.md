@@ -8,10 +8,10 @@ Keystone is the canonical metadata layer for jigsaw-style asset packs: it captur
 
 ## Status
 
-**Product path:** load a modular kit → **Analyze** (mesh sockets + rules) → tweak → **Pack assembly** preview → validate/save.  
-**Current release:** v0.2.0 (honest-limits completion on top of Phases 0–3 + production gates).
+**Product path:** load a modular kit → **Analyze** (mesh sockets + rules) → **vibe-ready** → tweak → **Pack assembly** preview → bundle handoff → resolve.  
+**Current release:** v0.2.0 + unreleased vibe-ready facilitation on `feat/vibe-ready-facilitation`.
 
-**User docs:** [Getting started](docs/user-guide/getting-started.md) · [Desktop QA](docs/superpowers/QA-DESKTOP.md) · [Release](docs/superpowers/RELEASE.md) · [Status matrix](docs/superpowers/STATUS.md)
+**User docs:** [Getting started](docs/user-guide/getting-started.md) · [Vibe-builder handoff](docs/user-guide/vibe-builder-handoff.md) · [Bake-off](docs/user-guide/bake-off.md) · [Desktop QA](docs/superpowers/QA-DESKTOP.md) · [Release](docs/superpowers/RELEASE.md) · [Status matrix](docs/superpowers/STATUS.md)
 
 Install from [GitHub Releases](https://github.com/9thLevelSoftware/keystone/releases) (Windows CLI zip + editor installer).
 
@@ -22,17 +22,18 @@ Install from [GitHub Releases](https://github.com/9thLevelSoftware/keystone/rele
 | 2 | Interactive editor MVP | Done |
 | 3 | Engine/export integration, 2D authoring, migrations | Done |
 | Prod gates | Provenance, vocabulary, WASM, full editor UI, FBX bounds | Done |
-| Honest limits | Mesh sockets, rich auto-rules, pack assembly preview | Done (this track) |
+| Honest limits | Mesh sockets, rich auto-rules, pack assembly preview | Done |
+| Vibe-ready | Readiness report, handoff contract, bake-off, resolve feedback | In progress (this branch) |
 
 ## Workspace
 
 Cargo workspace, edition 2024, MSRV `1.85`, dual-licensed MIT OR Apache-2.0:
 
 - **`asset-mapper-core`** — canonical schema, `validate_pack`, content hashing, `LlmBundle`, `resolve_plan` (3D + Frame2d), migrations, engine/glTF export helpers, authoring suggestions. No I/O dependencies.
-- **`asset-mapper-io`** — pack folder indexing, bounds measurement (glTF/OBJ/images/ASCII+binary FBX), sidecar read/write, accept-drift, migration IO.
+- **`asset-mapper-io`** — pack folder indexing, bounds measurement (glTF/OBJ/images/ASCII+binary FBX), mesh samples for sockets (glTF/OBJ/FBX Vertices), sidecar read/write, accept-drift, migration IO.
 - **`asset-mapper-cli`** — the `asset-mapper` binary (`clap` derive subcommands).
 - **`asset-mapper-editor`** — Tauri v2 desktop editor (React + Three.js) over the same core/IO crates.
-- **`asset-mapper-wasm`** — WASM JSON APIs: `validate_pack_json`, `resolve_plan_json`, `bundle_pack_json`.
+- **`asset-mapper-wasm`** — WASM JSON APIs: `validate_pack_json`, `resolve_plan_json`, `bundle_pack_json`, `vibe_ready_json`.
 
 ## Install / Build
 
@@ -62,6 +63,7 @@ Commands:
   resolve              Resolve an assembly plan into a placed scene
   propose-assembly     Auto multi-piece plan from connectors + rules
   analyze              Measure bounds + propose mesh sockets/rules
+  vibe-ready           Report pack readiness for vibe builders
   accept-drift         Accept content-hash drift after review
   measure-bounds       Re-measure mesh/image bounds
   migrate              Migrate pack sidecar to current schema version

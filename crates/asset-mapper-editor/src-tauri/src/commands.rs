@@ -3,8 +3,8 @@ use std::path::{Component, Path, PathBuf};
 
 use asset_mapper_core::{
     AnalyzeOptions, AssemblyPlan, LlmBundle, PackRecord, ProposeAssemblyOptions, Severity,
-    ValidationReport, propose_assembly_plan, resolve_plan as resolve_core_plan,
-    validate_pack as validate_core_pack,
+    ValidationReport, VibeReadinessReport, propose_assembly_plan,
+    resolve_plan as resolve_core_plan, validate_pack as validate_core_pack, vibe_readiness,
 };
 use asset_mapper_io::{
     InitPackOptions, accept_hash_drift as io_accept_hash_drift,
@@ -172,9 +172,23 @@ pub fn resolve_assembly_plan(
     state: EditorPackState,
     plan: AssemblyPlan,
 ) -> Result<crate::dto::ResolveEditorResult, EditorCommandError> {
-    let scene = resolve_core_plan(&state.pack, &plan)
-        .map_err(|error| EditorCommandError::new("resolve_failed", error.to_string()))?;
-    Ok(crate::dto::ResolveEditorResult { scene })
+    match resolve_core_plan(&state.pack, &plan) {
+        Ok(scene) => Ok(crate::dto::ResolveEditorResult {
+            scene: Some(scene),
+            error: None,
+        }),
+        Err(error) => {
+            let report = error.to_report();
+            Ok(crate::dto::ResolveEditorResult {
+                scene: None,
+                error: Some(report),
+            })
+        }
+    }
+}
+
+pub fn vibe_ready_pack(state: EditorPackState) -> Result<VibeReadinessReport, EditorCommandError> {
+    Ok(vibe_readiness(&state.pack))
 }
 
 pub fn propose_assembly(
@@ -190,20 +204,19 @@ pub fn propose_assembly(
             ..ProposeAssemblyOptions::default()
         },
     );
-    let scene = if report.plan.root_asset_id.is_empty() {
-        None
+    let (scene, error) = if report.plan.root_asset_id.is_empty() {
+        (None, None)
     } else {
         match resolve_core_plan(&state.pack, &report.plan) {
-            Ok(scene) => Some(scene),
-            Err(error) => {
-                return Err(EditorCommandError::new(
-                    "resolve_failed",
-                    format!("proposed plan failed to resolve: {error}"),
-                ));
-            }
+            Ok(scene) => (Some(scene), None),
+            Err(error) => (None, Some(error.to_report())),
         }
     };
-    Ok(crate::dto::ProposeAssemblyEditorResult { report, scene })
+    Ok(crate::dto::ProposeAssemblyEditorResult {
+        report,
+        scene,
+        error,
+    })
 }
 
 fn state_from_pack(

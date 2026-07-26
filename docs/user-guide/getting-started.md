@@ -75,7 +75,14 @@ asset-mapper analyze .\my-pack --aabb-only
 # Multi-piece assembly plan (unique assets, greedy graph):
 asset-mapper propose-assembly .\my-pack --max-pieces 8 -o plan.json
 asset-mapper resolve .\my-pack .\plan.json
+
+# Vibe-builder readiness (coverage, orphans, connectivity score):
+asset-mapper vibe-ready .\my-pack
 ```
+
+**Vibe handoff:** export `bundle`, let an external planner emit plan JSON, then `resolve`. See [vibe-builder-handoff.md](./vibe-builder-handoff.md). Prove auto-map with the [bake-off](./bake-off.md).
+
+**Tile kits:** each `asset_id` is unique per resolve. Place N floor tiles outside Keystone using the same connector metadata.
 
 **Manual path (optional):** Add connectors yourself, set classes/rules, then validate/save as before.
 

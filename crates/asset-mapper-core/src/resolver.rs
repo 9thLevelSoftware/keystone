@@ -21,6 +21,33 @@ pub struct ResolvedScene {
     pub placements: Vec<AssetPlacement>,
 }
 
+/// Whether the plan author or pack author should fix a resolve failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolveFixTarget {
+    /// Compatibility rules, connector geometry, or pack metadata need changes.
+    FixPack,
+    /// Plan references, order, or rotation choices need changes.
+    FixPlan,
+}
+
+/// Structured guidance for tooling when resolve fails.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ResolveErrorReport {
+    pub code: String,
+    pub message: String,
+    pub fix_target: ResolveFixTarget,
+    pub guidance: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary_connector_id: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
     #[error("root asset `{root_asset_id}` does not exist in the pack")]
@@ -53,20 +80,24 @@ pub enum ResolveError {
         connector_id: String,
     },
 
-    #[error("connector frame kinds differ for `{placed_connector_id}` and `{anchor_connector_id}`")]
-    MixedConnectorDimensions {
-        placed_connector_id: String,
-        anchor_connector_id: String,
-    },
+    #[error(
+        "connector frame kinds differ for `{}` and `{}`",
+        .0.placed_connector_id, .0.anchor_connector_id
+    )]
+    MixedConnectorDimensions(Box<MateEndpoints>),
 
     #[error("connector classes `{placed_class}` and `{anchor_class}` are incompatible")]
     IncompatibleConnectorClasses {
         placed_class: String,
         anchor_class: String,
+        endpoints: Box<MateEndpoints>,
     },
 
     #[error("rotation choice {choice} is not permitted")]
-    RotationChoiceNotAllowed { choice: f32 },
+    RotationChoiceNotAllowed {
+        choice: f32,
+        endpoints: Box<MateEndpoints>,
+    },
 
     #[error("connector `{connector_id}` on asset `{asset_id}` has invalid mating/up axes")]
     InvalidConnectorAxes {
@@ -85,6 +116,185 @@ pub enum ResolveError {
         asset_id: String,
         connector_id: String,
     },
+}
+
+/// Placed/anchor asset + connector ids for resolve failures (boxed in error variants).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MateEndpoints {
+    pub placed_asset_id: String,
+    pub placed_connector_id: String,
+    pub anchor_asset_id: String,
+    pub anchor_connector_id: String,
+}
+
+impl MateEndpoints {
+    pub fn new(
+        placed_asset_id: impl Into<String>,
+        placed_connector_id: impl Into<String>,
+        anchor_asset_id: impl Into<String>,
+        anchor_connector_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            placed_asset_id: placed_asset_id.into(),
+            placed_connector_id: placed_connector_id.into(),
+            anchor_asset_id: anchor_asset_id.into(),
+            anchor_connector_id: anchor_connector_id.into(),
+        }
+    }
+}
+
+impl ResolveError {
+    /// Stable machine-readable code (snake_case).
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnknownRootAsset { .. } => "unknown_root_asset",
+            Self::UnknownPlacedAsset { .. } => "unknown_placed_asset",
+            Self::UnknownAnchorAsset { .. } => "unknown_anchor_asset",
+            Self::AnchorAssetNotPlaced { .. } => "anchor_asset_not_placed",
+            Self::UnknownConnector { .. } => "unknown_connector",
+            Self::Non3dConnector { .. } => "non_3d_connector",
+            Self::Non2dConnector { .. } => "non_2d_connector",
+            Self::MixedConnectorDimensions(_) => "mixed_connector_dimensions",
+            Self::IncompatibleConnectorClasses { .. } => "incompatible_connector_classes",
+            Self::RotationChoiceNotAllowed { .. } => "rotation_choice_not_allowed",
+            Self::InvalidConnectorAxes { .. } => "invalid_connector_axes",
+            Self::InvalidConnectorOrientation { .. } => "invalid_connector_orientation",
+            Self::Invalid2dNormal { .. } => "invalid_2d_normal",
+        }
+    }
+
+    pub fn fix_target(&self) -> ResolveFixTarget {
+        match self {
+            Self::UnknownRootAsset { .. }
+            | Self::UnknownPlacedAsset { .. }
+            | Self::UnknownAnchorAsset { .. }
+            | Self::AnchorAssetNotPlaced { .. }
+            | Self::UnknownConnector { .. }
+            | Self::MixedConnectorDimensions(_)
+            | Self::RotationChoiceNotAllowed { .. } => ResolveFixTarget::FixPlan,
+            Self::IncompatibleConnectorClasses { .. } => ResolveFixTarget::FixPack,
+            Self::Non3dConnector { .. }
+            | Self::Non2dConnector { .. }
+            | Self::InvalidConnectorAxes { .. }
+            | Self::InvalidConnectorOrientation { .. }
+            | Self::Invalid2dNormal { .. } => ResolveFixTarget::FixPack,
+        }
+    }
+
+    pub fn guidance(&self) -> String {
+        match self {
+            Self::UnknownRootAsset { .. } => {
+                "Set root_asset_id to an asset_id that exists in the pack.".to_owned()
+            }
+            Self::UnknownPlacedAsset { .. } => {
+                "Use placed_asset_id values from the pack asset list.".to_owned()
+            }
+            Self::UnknownAnchorAsset { .. } => {
+                "Use anchor_asset_id values from the pack asset list.".to_owned()
+            }
+            Self::AnchorAssetNotPlaced { .. } => {
+                "Order operations so the anchor is the root or was placed earlier.".to_owned()
+            }
+            Self::UnknownConnector { .. } => {
+                "Pick connector_ids from the asset's connectors (bundle or pack sidecar)."
+                    .to_owned()
+            }
+            Self::Non3dConnector { .. } | Self::Non2dConnector { .. } => {
+                "Mate connectors of the same frame kind (both frame3d or both frame2d).".to_owned()
+            }
+            Self::MixedConnectorDimensions(_) => {
+                "Do not mix 2D and 3D connectors in one attach operation.".to_owned()
+            }
+            Self::IncompatibleConnectorClasses {
+                placed_class,
+                anchor_class,
+                ..
+            } => {
+                format!(
+                    "Add a compatibility rule pairing `{placed_class}` with `{anchor_class}`, or change connector classes so they match an existing rule."
+                )
+            }
+            Self::RotationChoiceNotAllowed { .. } => {
+                "Use rotation_choice_deg allowed by the rule (locked/steps_deg/free).".to_owned()
+            }
+            Self::InvalidConnectorAxes { .. } => {
+                "Fix mating_axis / up_reference so they are non-parallel unit axes.".to_owned()
+            }
+            Self::InvalidConnectorOrientation { .. } => {
+                "Fix the connector orientation quaternion (must be unit, non-zero).".to_owned()
+            }
+            Self::Invalid2dNormal { .. } => "Set a non-zero 2D connector normal.".to_owned(),
+        }
+    }
+
+    /// Primary asset implicated in the error (for editor selection).
+    pub fn primary_asset_id(&self) -> Option<&str> {
+        match self {
+            Self::UnknownRootAsset { root_asset_id } => Some(root_asset_id),
+            Self::UnknownPlacedAsset { asset_id }
+            | Self::UnknownConnector { asset_id, .. }
+            | Self::Non3dConnector { asset_id, .. }
+            | Self::Non2dConnector { asset_id, .. }
+            | Self::InvalidConnectorAxes { asset_id, .. }
+            | Self::InvalidConnectorOrientation { asset_id, .. }
+            | Self::Invalid2dNormal { asset_id, .. } => Some(asset_id),
+            Self::UnknownAnchorAsset { anchor_asset_id }
+            | Self::AnchorAssetNotPlaced { anchor_asset_id } => Some(anchor_asset_id),
+            Self::MixedConnectorDimensions(ep) => Some(&ep.placed_asset_id),
+            Self::IncompatibleConnectorClasses { endpoints, .. }
+            | Self::RotationChoiceNotAllowed { endpoints, .. } => Some(&endpoints.placed_asset_id),
+        }
+    }
+
+    pub fn primary_connector_id(&self) -> Option<&str> {
+        match self {
+            Self::UnknownConnector { connector_id, .. }
+            | Self::Non3dConnector { connector_id, .. }
+            | Self::Non2dConnector { connector_id, .. }
+            | Self::InvalidConnectorAxes { connector_id, .. }
+            | Self::InvalidConnectorOrientation { connector_id, .. }
+            | Self::Invalid2dNormal { connector_id, .. } => Some(connector_id),
+            Self::MixedConnectorDimensions(ep) => Some(&ep.placed_connector_id),
+            Self::IncompatibleConnectorClasses { endpoints, .. }
+            | Self::RotationChoiceNotAllowed { endpoints, .. } => {
+                Some(&endpoints.placed_connector_id)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn secondary_asset_id(&self) -> Option<&str> {
+        match self {
+            Self::MixedConnectorDimensions(ep) => Some(&ep.anchor_asset_id),
+            Self::IncompatibleConnectorClasses { endpoints, .. }
+            | Self::RotationChoiceNotAllowed { endpoints, .. } => Some(&endpoints.anchor_asset_id),
+            _ => None,
+        }
+    }
+
+    pub fn secondary_connector_id(&self) -> Option<&str> {
+        match self {
+            Self::MixedConnectorDimensions(ep) => Some(&ep.anchor_connector_id),
+            Self::IncompatibleConnectorClasses { endpoints, .. }
+            | Self::RotationChoiceNotAllowed { endpoints, .. } => {
+                Some(&endpoints.anchor_connector_id)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn to_report(&self) -> ResolveErrorReport {
+        ResolveErrorReport {
+            code: self.code().to_owned(),
+            message: self.to_string(),
+            fix_target: self.fix_target(),
+            guidance: self.guidance(),
+            asset_id: self.primary_asset_id().map(str::to_owned),
+            connector_id: self.primary_connector_id().map(str::to_owned),
+            secondary_asset_id: self.secondary_asset_id().map(str::to_owned),
+            secondary_connector_id: self.secondary_connector_id().map(str::to_owned),
+        }
+    }
 }
 
 pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedScene, ResolveError> {
@@ -130,10 +340,25 @@ pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedSc
         .ok_or_else(|| ResolveError::IncompatibleConnectorClasses {
             placed_class: placed_connector.class.clone(),
             anchor_class: anchor_connector.class.clone(),
+            endpoints: Box::new(MateEndpoints::new(
+                operation.placed_asset_id.clone(),
+                operation.placed_connector_id.clone(),
+                operation.anchor_asset_id.clone(),
+                operation.anchor_connector_id.clone(),
+            )),
         })?;
 
-        let rotation_choice_deg =
-            validate_rotation_choice(&rule.rotation, operation.rotation_choice_deg)?;
+        let mate_endpoints = MateEndpoints::new(
+            operation.placed_asset_id.clone(),
+            operation.placed_connector_id.clone(),
+            operation.anchor_asset_id.clone(),
+            operation.anchor_connector_id.clone(),
+        );
+        let rotation_choice_deg = validate_rotation_choice(
+            &rule.rotation,
+            operation.rotation_choice_deg,
+            &mate_endpoints,
+        )?;
 
         let placed_asset_world = match (&placed_connector.frame, &anchor_connector.frame) {
             (ConnectorFrame::Frame3d { .. }, ConnectorFrame::Frame3d { .. }) => {
@@ -161,10 +386,14 @@ pub fn resolve_plan(pack: &PackRecord, plan: &AssemblyPlan) -> Result<ResolvedSc
                 )?
             }
             _ => {
-                return Err(ResolveError::MixedConnectorDimensions {
-                    placed_connector_id: placed_connector.connector_id.clone(),
-                    anchor_connector_id: anchor_connector.connector_id.clone(),
-                });
+                return Err(ResolveError::MixedConnectorDimensions(Box::new(
+                    MateEndpoints::new(
+                        operation.placed_asset_id.clone(),
+                        placed_connector.connector_id.clone(),
+                        operation.anchor_asset_id.clone(),
+                        anchor_connector.connector_id.clone(),
+                    ),
+                )));
             }
         };
 
@@ -210,10 +439,15 @@ fn find_compatibility_rule<'a>(
 fn validate_rotation_choice(
     allowed_rotation: &AllowedRotation,
     rotation_choice_deg: Option<f32>,
+    endpoints: &MateEndpoints,
 ) -> Result<f32, ResolveError> {
     let choice = rotation_choice_deg.unwrap_or(0.0);
+    let not_allowed = |choice: f32| ResolveError::RotationChoiceNotAllowed {
+        choice,
+        endpoints: Box::new(endpoints.clone()),
+    };
     if !choice.is_finite() {
-        return Err(ResolveError::RotationChoiceNotAllowed { choice });
+        return Err(not_allowed(choice));
     }
 
     match allowed_rotation {
@@ -221,7 +455,7 @@ fn validate_rotation_choice(
             if choice.abs() < 0.001 {
                 Ok(choice)
             } else {
-                Err(ResolveError::RotationChoiceNotAllowed { choice })
+                Err(not_allowed(choice))
             }
         }
         AllowedRotation::StepsDeg { values } => {
@@ -231,7 +465,7 @@ fn validate_rotation_choice(
             {
                 Ok(choice)
             } else {
-                Err(ResolveError::RotationChoiceNotAllowed { choice })
+                Err(not_allowed(choice))
             }
         }
         AllowedRotation::Free => Ok(choice),

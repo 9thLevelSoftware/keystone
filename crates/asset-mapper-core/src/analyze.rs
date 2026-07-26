@@ -6,14 +6,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::mesh_geometry::MeshGeometry;
 use crate::mesh_sockets::{
-    ProposedSocket, SocketProposeOptions, SocketSource, propose_sockets_from_bounds,
-    propose_sockets_from_mesh,
+    ProposedSocket, SocketProposeOptions, propose_sockets_from_bounds, propose_sockets_from_mesh,
 };
 use crate::schema::{
     AllowedRotation, AssetRecord, AssetType, CompatibilityRule, ConnectorClass, ConnectorFrame,
     ConnectorRecord, ConnectorRole, PackRecord, ReviewFlag,
 };
-use crate::suggest::suggest_class_from_name;
+use crate::suggest::{suggest_class_from_asset, suggest_semantics_for_asset};
 
 /// Options controlling auto-analysis.
 #[derive(Debug, Clone)]
@@ -26,6 +25,11 @@ pub struct AnalyzeOptions {
     pub modular_kit_mode: bool,
     /// Skip mesh socket detection and use AABB faces only.
     pub aabb_only: bool,
+    /// Skip auto-connectors when `source_path` matches any of these globs
+    /// (`*` and `**` supported; case-insensitive). Example: `Decals/**`, `*.png`.
+    pub exclude_globs: Vec<String>,
+    /// When true, do not propose connectors on Sprite2d / image assets.
+    pub skip_images: bool,
 }
 
 impl Default for AnalyzeOptions {
@@ -35,6 +39,8 @@ impl Default for AnalyzeOptions {
             min_face_span_ratio: 0.05,
             modular_kit_mode: true,
             aabb_only: false,
+            exclude_globs: Vec::new(),
+            skip_images: true,
         }
     }
 }
@@ -90,13 +96,37 @@ pub fn analyze_pack_with_meshes(
     let mut new_classes: Vec<(String, String)> = Vec::new();
 
     let socket_opts = SocketProposeOptions {
-        max_sockets: 12,
+        max_sockets: 8,
         min_face_span_ratio: options.min_face_span_ratio,
         skip_vertical_for_walls: options.modular_kit_mode,
     };
+    let vocabulary = pack.vocabulary.clone();
 
     for asset in &mut pack.assets {
         report.assets_processed += 1;
+
+        if path_excluded(&asset.source_path, &options.exclude_globs) {
+            if options.replace_existing_connectors {
+                asset.connectors.clear();
+            }
+            report.skipped_assets.push(format!(
+                "{} (excluded by glob)",
+                asset.asset_id
+            ));
+            continue;
+        }
+
+        if options.skip_images
+            && matches!(asset.asset_type, AssetType::Sprite2d | AssetType::Tile2d)
+        {
+            if options.replace_existing_connectors {
+                asset.connectors.clear();
+            }
+            report
+                .skipped_assets
+                .push(format!("{} (image/sprite skipped)", asset.asset_id));
+            continue;
+        }
 
         if !options.replace_existing_connectors && !asset.connectors.is_empty() {
             report.skipped_assets.push(format!(
@@ -176,21 +206,30 @@ pub fn analyze_pack_with_meshes(
             .collect();
 
         let mut added = 0usize;
+        let mut classes_on_asset: Vec<String> = Vec::new();
         for sock in &sockets {
             let class = class_for_socket(asset, sock, &base_class, options);
             if used_classes.insert(class.clone()) {
                 new_classes.push((class.clone(), title_case(&class)));
                 report.classes_added += 1;
             }
+            classes_on_asset.push(class.clone());
 
             let base_id = format!("{}_{}", asset.asset_id, sock.name);
             let connector_id = unique_id(&base_id, &mut used_ids);
             let snap = snap_tolerance_for(asset, sock);
+            let face_size = Some([sock.face_span[0].max(1e-6), sock.face_span[1].max(1e-6)]);
+            // Modular kits: default symmetric; only keep inferred roles on door-like classes.
+            let role = if class == "doorway" || class == "window_frame" {
+                sock.suggested_role.clone()
+            } else {
+                ConnectorRole::Symmetric
+            };
             asset.connectors.push(ConnectorRecord {
                 connector_id: connector_id.clone(),
                 display_name: title_case(&connector_id),
                 class,
-                role: ConnectorRole::Symmetric,
+                role,
                 frame: ConnectorFrame::Frame3d {
                     position: sock.position,
                     orientation_quat_xyzw: sock.orientation_quat_xyzw,
@@ -198,6 +237,7 @@ pub fn analyze_pack_with_meshes(
                 mating_axis: sock.mating_axis,
                 up_reference: sock.up_reference,
                 snap_tolerance: snap,
+                face_size,
             });
             added += 1;
         }
@@ -209,6 +249,7 @@ pub fn analyze_pack_with_meshes(
             ));
         } else {
             report.connectors_added += added;
+            apply_semantic_suggestions(asset, &classes_on_asset, &vocabulary);
             if asset.review_flags.contains(&ReviewFlag::BoundsPlaceholder) {
                 report.notes.push(format!(
                     "{}: connectors proposed on placeholder bounds — re-measure when possible",
@@ -243,14 +284,12 @@ pub fn analyze_pack_with_meshes(
 }
 
 fn class_for_asset(asset: &AssetRecord, options: &AnalyzeOptions) -> String {
-    if let Some(from_name) = suggest_class_from_name(&asset.display_name)
-        .or_else(|| suggest_class_from_name(&asset.asset_id))
-    {
-        return from_name;
-    }
-
     if matches!(asset.asset_type, AssetType::Tile2d | AssetType::Sprite2d) {
         return "tile_edge".to_owned();
+    }
+
+    if let Some(from_path) = suggest_class_from_asset(asset) {
+        return from_path;
     }
 
     if options.modular_kit_mode {
@@ -268,48 +307,135 @@ fn class_for_asset(asset: &AssetRecord, options: &AnalyzeOptions) -> String {
     "module_edge".to_owned()
 }
 
+/// Class per socket. Wall assets keep `wall_edge` on vertical faces unless a
+/// **strong** portal + door/window naming justifies promotion. Weak MeshPortal
+/// holes on sci-fi walls must not become doorway (MegaKit failure mode).
 fn class_for_socket(
     asset: &AssetRecord,
     sock: &ProposedSocket,
     base_class: &str,
     options: &AnalyzeOptions,
 ) -> String {
-    // Name-based asset class wins for doors/windows.
-    if base_class == "doorway" || base_class == "window_frame" || base_class == "archway" {
-        return base_class.to_owned();
-    }
-
     if !options.modular_kit_mode {
         return base_class.to_owned();
     }
 
-    let span_u = sock.face_span[0];
-    let span_v = sock.face_span[1];
-    let max_span = span_u.max(span_v);
-    let min_span = span_u.min(span_v).max(1e-6);
-    let aspect = max_span / min_span;
-
-    // Portal on a wall-like piece → doorway if tall-ish opening.
-    if sock.source == SocketSource::MeshPortal {
-        let height = if sock.name.contains('y') {
-            span_u.max(span_v)
-        } else {
-            // vertical face: v is often height
-            span_v.max(span_u * 0.5)
-        };
-        let dims_y = (asset.bounds.max[1] - asset.bounds.min[1]).abs();
-        if height > dims_y * 0.35 || aspect > 1.2 {
-            return "doorway".to_owned();
-        }
-        return "window_frame".to_owned();
-    }
-
-    // Horizontal faces → floor
+    // Horizontal faces on floors/platforms.
     if sock.name == "pos_y" || sock.name == "neg_y" {
+        if base_class == "floor_edge" || base_class == "tile_edge" {
+            return "floor_edge".to_owned();
+        }
+        // Skip top/bottom class noise on walls/doors — keep base only if floor-like.
+        if base_class.contains("wall") || base_class == "doorway" || base_class == "window_frame" {
+            return base_class.to_owned();
+        }
         return "floor_edge".to_owned();
     }
 
+    // Door/window assets: keep class on vertical faces.
+    if base_class == "doorway" || base_class == "window_frame" || base_class == "archway" {
+        return base_class.to_owned();
+    }
+
+    let path_l = asset.source_path.replace('\\', "/").to_ascii_lowercase();
+    let name_l = format!(
+        "{} {}",
+        asset.display_name.to_ascii_lowercase(),
+        asset.asset_id.to_ascii_lowercase()
+    );
+    let named_door = name_l.contains("door") || path_l.contains("door");
+    let named_window = name_l.contains("window") || path_l.contains("window");
+
+    // Portal class promotion is rare: needs strong portal + naming (or extreme opening).
+    if sock.is_strong_portal {
+        let span_u = sock.face_span[0];
+        let span_v = sock.face_span[1];
+        let height = span_v.max(span_u * 0.5);
+        let dims_y = (asset.bounds.max[1] - asset.bounds.min[1]).abs().max(1e-3);
+        let tall_opening = height > dims_y * 0.45;
+
+        if named_door {
+            return "doorway".to_owned();
+        }
+        if named_window {
+            return "window_frame".to_owned();
+        }
+        // Unnamed wall: only promote on very strong openings (true door cutouts).
+        if base_class == "wall_edge"
+            && tall_opening
+            && sock.portal_empty_frac >= 0.22
+        {
+            return "doorway".to_owned();
+        }
+    }
+
+    // Weak MeshPortal without strong flag: keep base (wall_edge / module_edge).
     base_class.to_owned()
+}
+
+fn path_excluded(source_path: &str, globs: &[String]) -> bool {
+    if globs.is_empty() {
+        return false;
+    }
+    let path = source_path.replace('\\', "/");
+    let path_l = path.to_ascii_lowercase();
+    globs.iter().any(|g| {
+        let pat = g.replace('\\', "/").to_ascii_lowercase();
+        glob_match(&pat, &path_l)
+    })
+}
+
+/// Minimal glob: `*` (segment), `**` (any), case already lowercased.
+fn glob_match(pattern: &str, path: &str) -> bool {
+    if pattern == "**" || pattern == "*" {
+        return true;
+    }
+    // Exact
+    if pattern == path {
+        return true;
+    }
+    // *.ext
+    if let Some(ext) = pattern.strip_prefix("*.") {
+        return path.ends_with(&format!(".{ext}")) || path.ends_with(ext);
+    }
+    // prefix/**
+    if let Some(prefix) = pattern.strip_suffix("/**") {
+        return path == prefix || path.starts_with(&format!("{prefix}/"));
+    }
+    // **/name
+    if let Some(suffix) = pattern.strip_prefix("**/") {
+        return path.ends_with(suffix) || path.contains(&format!("/{suffix}"));
+    }
+    // contains * mid
+    if pattern.contains('*') {
+        let parts: Vec<&str> = pattern.split('*').collect();
+        if parts.is_empty() {
+            return true;
+        }
+        let mut rest = path;
+        if !parts[0].is_empty() {
+            if let Some(stripped) = rest.strip_prefix(parts[0]) {
+                rest = stripped;
+            } else {
+                return false;
+            }
+        }
+        for (i, part) in parts.iter().enumerate().skip(1) {
+            if part.is_empty() {
+                continue;
+            }
+            if i == parts.len() - 1 {
+                return rest.ends_with(part) || rest.contains(part);
+            }
+            if let Some(idx) = rest.find(part) {
+                rest = &rest[idx + part.len()..];
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+    path.contains(pattern)
 }
 
 fn snap_tolerance_for(asset: &AssetRecord, sock: &ProposedSocket) -> f32 {
@@ -356,10 +482,29 @@ fn auto_connectors_2d(asset: &mut AssetRecord, class: &str) -> usize {
             mating_axis: crate::schema::Axis3::PosZ,
             up_reference: crate::schema::Axis3::PosY,
             snap_tolerance: 0.5,
+            face_size: None,
         });
         added += 1;
     }
     added
+}
+
+/// Fill empty semantic fields from name/class/shape using pack vocabulary only.
+fn apply_semantic_suggestions(
+    asset: &mut AssetRecord,
+    connector_classes: &[String],
+    vocabulary: &crate::schema::ControlledVocabulary,
+) {
+    let suggested = suggest_semantics_for_asset(asset, connector_classes, vocabulary);
+    if asset.semantic_tags.is_empty() {
+        asset.semantic_tags = suggested.semantic_tags;
+    }
+    if asset.affordances.is_empty() {
+        asset.affordances = suggested.affordances;
+    }
+    if asset.placement_constraints.is_empty() {
+        asset.placement_constraints = suggested.placement_constraints;
+    }
 }
 
 /// Rich modular-kit rule ontology + same-class self rules.

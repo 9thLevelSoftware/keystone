@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fixture:phase2": "node scripts/write-phase2-glb-fixture.mjs",
+    "fixture:vibe": "node ../../scripts/write-vibe-fixtures.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

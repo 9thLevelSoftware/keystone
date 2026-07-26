@@ -96,6 +96,7 @@ fn export_bundle_is_blocked_by_validation_errors() {
         mating_axis: asset_mapper_core::Axis3::PosZ,
         up_reference: asset_mapper_core::Axis3::PosY,
         snap_tolerance: 0.01,
+        face_size: None,
     });
 
     let output = temp.path().join("bundle.json");
@@ -147,6 +148,7 @@ fn export_bundle_writes_llm_bundle_when_valid() {
         mating_axis: asset_mapper_core::Axis3::PosZ,
         up_reference: asset_mapper_core::Axis3::PosY,
         snap_tolerance: 0.01,
+        face_size: None,
     });
 
     let output = temp.path().join("bundle.json");

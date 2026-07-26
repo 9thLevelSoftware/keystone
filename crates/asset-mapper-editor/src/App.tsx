@@ -5,6 +5,7 @@ import AssetList from "./components/AssetList";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import Inspector from "./components/Inspector";
 import PackCompletenessBanner from "./components/PackCompletenessBanner";
+import VibeReadinessBanner from "./components/VibeReadinessBanner";
 import Viewport from "./components/Viewport";
 import { selectAsset, selectConnector } from "./editorState";
 import {
@@ -19,6 +20,8 @@ import {
   openPackFolder,
   savePack,
   validatePack,
+  vibeReadyPack,
+  type VibeReadinessReport,
 } from "./tauriApi";
 import type { EditorCommandError, EditorPackState, ResolvedScene } from "./types";
 
@@ -35,6 +38,20 @@ export default function App() {
   const [status, setStatus] = useState("No pack open. Open or Init a pack, then Analyze.");
   const [busy, setBusy] = useState(false);
   const [assemblyScene, setAssemblyScene] = useState<ResolvedScene | null>(null);
+  const [vibeReport, setVibeReport] = useState<VibeReadinessReport | null>(null);
+
+  async function refreshVibe(
+    nextState: EditorPackState,
+  ): Promise<VibeReadinessReport | null> {
+    try {
+      const report = await vibeReadyPack(nextState);
+      setVibeReport(report);
+      return report;
+    } catch {
+      setVibeReport(null);
+      return null;
+    }
+  }
 
   const selectedAsset = useMemo(
     () =>
@@ -92,6 +109,7 @@ export default function App() {
             const opened = await openPackFolder(folder);
             setState(opened);
             setAssemblyScene(null);
+            await refreshVibe(opened);
             setStatus(`Opened ${opened.pack.display_name}.`);
           })
         }
@@ -135,6 +153,7 @@ export default function App() {
             );
             setState(initialized);
             setAssemblyScene(null);
+            await refreshVibe(initialized);
             setStatus(
               `Initialized ${initialized.pack.display_name}. Click Analyze to propose connectors.`,
             );
@@ -172,6 +191,7 @@ export default function App() {
             const result = await analyzePackFolder(state.packRoot, replace);
             setState(result.state);
             setAssemblyScene(null);
+            await refreshVibe(result.state);
             setStatus(
               `Analyze: +${result.report.connectors_added} connectors, ` +
                 `+${result.report.classes_added} classes, +${result.report.rules_added} rules` +
@@ -194,6 +214,8 @@ export default function App() {
             }
             const opened = await openPackFolder(state.packRoot);
             setState(opened);
+            setAssemblyScene(null);
+            await refreshVibe(opened);
             setStatus(`Reloaded ${opened.pack.display_name}.`);
           })
         }
@@ -208,6 +230,8 @@ export default function App() {
             }
             const opened = await openPackFolder(state.packRoot);
             setState(opened);
+            setAssemblyScene(null);
+            await refreshVibe(opened);
             setStatus("Discarded local changes.");
           })
         }
@@ -220,6 +244,22 @@ export default function App() {
       />
       <div className="editor-main-column">
         {state ? <PackCompletenessBanner state={state} /> : null}
+        {state ? (
+          <VibeReadinessBanner
+            report={vibeReport}
+            busy={busy}
+            onRefresh={() =>
+              void runAction("Checking vibe readiness", async () => {
+                const report = await refreshVibe(state);
+                setStatus(
+                  report
+                    ? `Vibe readiness ${report.score}/100`
+                    : "Vibe readiness refreshed.",
+                );
+              })
+            }
+          />
+        ) : null}
         <Viewport
           state={state}
           selectedAsset={selectedAsset}
@@ -291,6 +331,17 @@ export default function App() {
           busy={busy}
           onScene={setAssemblyScene}
           onStatus={setStatus}
+          onSelectConnector={(assetId, connectorId) => {
+            setState((prev) => {
+              if (!prev) {
+                return prev;
+              }
+              if (connectorId) {
+                return selectConnector(prev, assetId, connectorId);
+              }
+              return selectAsset(prev, assetId);
+            });
+          }}
         />
       ) : null}
       </aside>

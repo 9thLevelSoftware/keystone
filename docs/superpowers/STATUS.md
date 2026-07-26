@@ -1,8 +1,8 @@
 # Keystone Status Matrix (Plans vs Codebase)
 
 **Last audited:** 2026-07-26  
-**Branch:** `main`  
-**Method:** Compare design exit criteria against live crates/tests after full Phases 0–3 implementation.
+**Branch:** `feat/vibe-ready-facilitation` (from `main` @ v0.2.0)  
+**Method:** Compare design exit criteria against live crates/tests after full Phases 0–3 + vibe-ready facilitation.
 
 ### Verification gate results (2026-07-26, Windows)
 
@@ -129,6 +129,12 @@ Production-ready means:
 | X-12 | Mesh-aware sockets | Done | glTF/OBJ mesh samples → surface/portal sockets; AABB fallback + review flag |
 | X-13 | Rich auto rules | Done | Modular ontology + same-class self-rules; per-socket class heuristics |
 | X-14 | Whole-pack assembly | Done | `propose_assembly_plan`, CLI `propose-assembly`, editor Pack assembly |
+| X-15 | Vibe readiness | Done | `vibe_readiness`, CLI `vibe-ready`, editor banner, WASM |
+| X-16 | Handoff contract | Done | LlmBundle `how_to_plan`/`plan_contract`/`face_size`, vibe-builder-handoff.md |
+| X-17 | Resolve failure loop | Done | ResolveErrorReport codes + fix_target; editor plan import |
+| X-18 | Vibe bake-off fixtures | Done | `fixtures/vibe/`, `write-vibe-fixtures.mjs`, io test harness |
+| X-19 | FBX mesh samples | Done | Vertices → MeshGeometry for socket proposal |
+| X-20 | Code signing | Deferred | Documented unsigned releases; no secrets in repo |
 
 ---
 

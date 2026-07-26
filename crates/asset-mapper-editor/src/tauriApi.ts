@@ -30,9 +30,21 @@ export interface ProposeAssemblyReport {
   notes: string[];
 }
 
+export interface ResolveErrorReport {
+  code: string;
+  message: string;
+  fix_target: "fix_pack" | "fix_plan";
+  guidance: string;
+  asset_id?: string | null;
+  connector_id?: string | null;
+  secondary_asset_id?: string | null;
+  secondary_connector_id?: string | null;
+}
+
 export interface ProposeAssemblyEditorResult {
   report: ProposeAssemblyReport;
   scene: ResolvedScene | null;
+  error?: ResolveErrorReport | null;
 }
 
 export interface AnalyzeEditorResult {
@@ -118,10 +130,27 @@ export function readPackAssetBytes(
   return invoke("read_pack_asset_bytes", { packRoot, sourcePath });
 }
 
+export interface ResolveEditorResult {
+  scene: ResolvedScene | null;
+  error: ResolveErrorReport | null;
+}
+
+export interface VibeReadinessReport {
+  score: number;
+  ready: boolean;
+  coverage: number;
+  assets_without_connectors: string[];
+  orphan_classes: string[];
+  dead_end_classes: string[];
+  connectivity_gaps: string[];
+  checklist: { id: string; ok: boolean; detail: string }[];
+  notes: string[];
+}
+
 export function resolveAssemblyPlan(
   state: EditorPackState,
   plan: AssemblyPlan,
-): Promise<{ scene: ResolvedScene }> {
+): Promise<ResolveEditorResult> {
   return invoke("resolve_assembly_plan", { state, plan });
 }
 
@@ -135,4 +164,8 @@ export function proposeAssembly(
     maxPieces,
     rootAssetId: rootAssetId ?? null,
   });
+}
+
+export function vibeReadyPack(state: EditorPackState): Promise<VibeReadinessReport> {
+  return invoke("vibe_ready_pack", { state });
 }

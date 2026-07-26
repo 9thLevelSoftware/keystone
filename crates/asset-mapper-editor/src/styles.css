@@ -156,6 +156,75 @@ button:disabled {
   padding-left: 1.2rem;
 }
 
+.vibe-readiness-banner {
+  margin: 8px 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.vibe-readiness-banner.vibe-ready {
+  border-color: #15803d;
+  background: #052e16;
+  color: #bbf7d0;
+}
+
+.vibe-readiness-banner.vibe-not-ready {
+  border-color: #a16207;
+  background: #422006;
+  color: #fde68a;
+}
+
+.vibe-readiness-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.vibe-readiness-banner ul {
+  margin: 6px 0 0;
+  padding-left: 1.2rem;
+}
+
+.vibe-readiness-banner li.ok {
+  color: #86efac;
+}
+
+.vibe-readiness-banner li.fail {
+  color: #fca5a5;
+}
+
+.resolve-error-panel {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #b91c1c;
+  background: #450a0a;
+  color: #fecaca;
+  font-size: 0.85rem;
+}
+
+.assembly-preview textarea {
+  width: 100%;
+  min-height: 100px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.assembly-preview button.active {
+  border-color: #38bdf8;
+  background: #0c4a6e;
+}
+
 .editor-shell {
   display: grid;
   grid-template-columns: 280px minmax(420px, 1fr) 360px;

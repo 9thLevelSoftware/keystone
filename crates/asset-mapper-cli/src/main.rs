@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use asset_mapper_core::{
     AnalyzeOptions, AssemblyPlan, LlmBundle, ProposeAssemblyOptions, export_connectors_csv,
     export_godot, export_unity, export_unreal, gltf_keystone_extras, propose_assembly_plan,
-    resolve_plan, validate_pack,
+    resolve_plan, validate_pack, vibe_readiness,
 };
 use asset_mapper_io::{
     InitPackOptions, PackInputKind, accept_hash_drift, analyze_pack_folder, index_pack_folder,
@@ -82,6 +82,12 @@ enum Commands {
         /// Use AABB face centers only (skip mesh socket detection).
         #[arg(long, default_value_t = false)]
         aabb_only: bool,
+        /// Skip assets whose source_path matches this glob (repeatable). Example: Decals/**, *.png
+        #[arg(long = "exclude-glob")]
+        exclude_globs: Vec<String>,
+        /// Propose connectors on image/sprite assets (default: skip images).
+        #[arg(long, default_value_t = false)]
+        include_images: bool,
     },
     /// Propose a multi-piece assembly plan from pack connectors and rules.
     ProposeAssembly {
@@ -92,9 +98,19 @@ enum Commands {
         /// Root asset id (default: asset with most connectors).
         #[arg(long)]
         root: Option<String>,
+        /// Document tile reuse intent (resolve still unique-asset; see notes).
+        #[arg(long, default_value_t = false)]
+        allow_asset_reuse: bool,
+        /// Soft guidance for external tile placement (default 1).
+        #[arg(long, default_value_t = 1)]
+        max_instances_per_asset: usize,
         /// Write plan JSON to this path (default: stdout).
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
+    },
+    /// Report vibe-builder readiness (coverage, orphans, connectivity, score).
+    VibeReady {
+        pack: PathBuf,
     },
     /// Migrate pack sidecar to the current schema version.
     Migrate {
@@ -179,9 +195,17 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
         Commands::Resolve { pack, plan } => {
             let loaded = read_pack_from_input(pack)?;
             let plan = read_plan(plan)?;
-            let scene = resolve_plan(&loaded.pack, &plan)?;
-            println!("{}", serde_json::to_string_pretty(&scene)?);
-            Ok(ExitCode::SUCCESS)
+            match resolve_plan(&loaded.pack, &plan) {
+                Ok(scene) => {
+                    println!("{}", serde_json::to_string_pretty(&scene)?);
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(error) => {
+                    let report = error.to_report();
+                    eprintln!("{}", serde_json::to_string_pretty(&report)?);
+                    Ok(ExitCode::from(1))
+                }
+            }
         }
         Commands::AcceptDrift {
             folder,
@@ -206,12 +230,16 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             folder,
             replace,
             aabb_only,
+            exclude_globs,
+            include_images,
         } => {
             let report = analyze_pack_folder(
                 folder,
                 AnalyzeOptions {
                     replace_existing_connectors: replace,
                     aabb_only,
+                    exclude_globs,
+                    skip_images: !include_images,
                     ..AnalyzeOptions::default()
                 },
             )?;
@@ -222,6 +250,8 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             pack,
             max_pieces,
             root,
+            allow_asset_reuse,
+            max_instances_per_asset,
             output,
         } => {
             let loaded = read_pack_from_input(pack)?;
@@ -230,12 +260,24 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
                 &ProposeAssemblyOptions {
                     max_pieces,
                     root_asset_id: root,
+                    allow_asset_reuse,
+                    max_instances_per_asset,
                     ..ProposeAssemblyOptions::default()
                 },
             );
             let body = serde_json::to_string_pretty(&report)?;
             write_or_print(output, body)?;
             Ok(ExitCode::SUCCESS)
+        }
+        Commands::VibeReady { pack } => {
+            let loaded = read_pack_from_input(pack)?;
+            let report = vibe_readiness(&loaded.pack);
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if report.ready {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::from(1))
+            }
         }
         Commands::Migrate { pack } => {
             let report = migrate_pack_input(pack)?;

@@ -151,8 +151,12 @@ fn locked_rotation_rejects_non_zero_choice() {
 
     assert!(matches!(
         error,
-        ResolveError::RotationChoiceNotAllowed { choice } if (choice - 90.0).abs() < 0.001
+        ResolveError::RotationChoiceNotAllowed { choice, ref endpoints }
+        if (choice - 90.0).abs() < 0.001 && endpoints.placed_asset_id == "corridor_b"
     ));
+    let report = error.to_report();
+    assert_eq!(report.asset_id.as_deref(), Some("corridor_b"));
+    assert_eq!(report.secondary_asset_id.as_deref(), Some("corridor_a"));
 }
 
 #[test]
@@ -172,7 +176,7 @@ fn step_rotation_accepts_listed_choice_and_rejects_unlisted_choice() {
 
     assert!(matches!(
         error,
-        ResolveError::RotationChoiceNotAllowed { choice } if (choice - 45.0).abs() < 0.001
+        ResolveError::RotationChoiceNotAllowed { choice, .. } if (choice - 45.0).abs() < 0.001
     ));
 }
 
@@ -187,7 +191,7 @@ fn rejects_non_finite_rotation_choice() {
 
     assert!(matches!(
         error,
-        ResolveError::RotationChoiceNotAllowed { choice } if choice.is_nan()
+        ResolveError::RotationChoiceNotAllowed { choice, .. } if choice.is_nan()
     ));
 }
 
@@ -201,9 +205,23 @@ fn rejects_incompatible_connector_classes() {
 
     assert!(matches!(
         error,
-        ResolveError::IncompatibleConnectorClasses { placed_class, anchor_class }
-        if placed_class == "corridor_end" && anchor_class == "corridor_end"
+        ResolveError::IncompatibleConnectorClasses {
+            ref placed_class,
+            ref anchor_class,
+            ref endpoints,
+        } if placed_class == "corridor_end"
+            && anchor_class == "corridor_end"
+            && endpoints.placed_asset_id == "corridor_b"
+            && endpoints.placed_connector_id == "back"
+            && endpoints.anchor_asset_id == "corridor_a"
+            && endpoints.anchor_connector_id == "front"
     ));
+    let report = error.to_report();
+    assert_eq!(report.code, "incompatible_connector_classes");
+    assert_eq!(report.asset_id.as_deref(), Some("corridor_b"));
+    assert_eq!(report.connector_id.as_deref(), Some("back"));
+    assert_eq!(report.secondary_asset_id.as_deref(), Some("corridor_a"));
+    assert_eq!(report.secondary_connector_id.as_deref(), Some("front"));
 }
 
 #[test]
@@ -229,10 +247,11 @@ fn rejects_mixed_2d_and_3d_connector_frames() {
 
     assert!(matches!(
         error,
-        ResolveError::MixedConnectorDimensions {
-            placed_connector_id,
-            anchor_connector_id,
-        } if placed_connector_id == "back" && anchor_connector_id == "front"
+        ResolveError::MixedConnectorDimensions(ref ep)
+        if ep.placed_asset_id == "corridor_b"
+            && ep.placed_connector_id == "back"
+            && ep.anchor_asset_id == "corridor_a"
+            && ep.anchor_connector_id == "front"
     ));
 }
 

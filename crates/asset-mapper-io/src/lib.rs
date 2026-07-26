@@ -6,7 +6,7 @@ pub mod migrate_io;
 pub mod sidecar;
 pub mod validation;
 
-pub use bounds::{MeasuredBounds, measure_asset_bounds};
+pub use bounds::{MeasuredBounds, extract_fbx_vertices, measure_asset_bounds};
 pub use error::IoError;
 pub use index::{
     IndexReport, IndexedAsset, InitPackOptions, MeasureBoundsReport, SUPPORTED_ASSET_EXTENSIONS,

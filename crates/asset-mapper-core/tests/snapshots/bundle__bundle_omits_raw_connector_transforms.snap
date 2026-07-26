@@ -1,6 +1,5 @@
 ---
 source: crates/asset-mapper-core/tests/bundle.rs
-assertion_line: 25
 expression: bundle_json
 ---
 {
@@ -74,8 +73,25 @@ expression: bundle_json
     }
   ],
   "display_name": "Phase 0 Corridor Fixture",
+  "how_to_plan": "Build an AssemblyPlan JSON: set root_asset_id to a pack asset_id, then list operations. Each operation mates placed_asset_id.placed_connector_id onto an already-placed anchor_asset_id.anchor_connector_id (root counts as placed). Connector classes must match a compatibility_rules pair (order-independent). rotation_choice_deg must be allowed by the rule (null/0 when locked). Never invent asset_id or connector_id values — only use ids from this bundle. Call resolve with the pack + plan to get world transforms; on failure read the error code and fix_target (fix_pack vs fix_plan). Unique assets only per plan: for tile floors place multiple instances outside Keystone (same asset_id cannot appear twice in one resolve). Prefer glTF/GLB sources for mesh-aware auto-map.",
   "license_summary": "MIT OR Apache-2.0 — test fixture",
   "pack_id": "phase0_corridor",
+  "plan_contract": {
+    "notes": [
+      "Each asset_id may appear at most once per resolved plan.",
+      "Connectors are referenced by connector_id only (no raw transforms in plans).",
+      "Use face_size when present to pair similarly sized openings."
+    ],
+    "operation_fields": [
+      "placed_asset_id",
+      "placed_connector_id",
+      "anchor_asset_id",
+      "anchor_connector_id",
+      "rotation_choice_deg"
+    ],
+    "operations_field": "operations",
+    "root_field": "root_asset_id"
+  },
   "provenance": {
     "notes": "Phase fixture pack",
     "source": "fixtures"

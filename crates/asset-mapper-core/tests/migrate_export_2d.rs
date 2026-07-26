@@ -117,6 +117,7 @@ fn engine_exports_include_connectors_and_rules() {
         mating_axis: Axis3::PosY,
         up_reference: Axis3::PosZ,
         snap_tolerance: 0.01,
+        face_size: None,
     });
     pack.compatibility_rules
         .push(asset_mapper_core::CompatibilityRule {
@@ -164,6 +165,7 @@ fn export_connectors_csv_escapes_commas_and_quotes() {
         mating_axis: Axis3::PosZ,
         up_reference: Axis3::PosY,
         snap_tolerance: 0.5,
+        face_size: None,
     });
 
     let csv = export_connectors_csv(&pack);
@@ -235,6 +237,7 @@ fn resolves_2d_frame_attachment() {
                     mating_axis: Axis3::PosX,
                     up_reference: Axis3::PosY,
                     snap_tolerance: 0.5,
+                    face_size: None,
                 }],
             },
             AssetRecord {
@@ -268,6 +271,7 @@ fn resolves_2d_frame_attachment() {
                     mating_axis: Axis3::NegX,
                     up_reference: Axis3::PosY,
                     snap_tolerance: 0.5,
+                    face_size: None,
                 }],
             },
         ],
@@ -350,6 +354,7 @@ fn two_tile_pack(rotation: AllowedRotation) -> PackRecord {
                     mating_axis: Axis3::PosX,
                     up_reference: Axis3::PosY,
                     snap_tolerance: 0.5,
+                    face_size: None,
                 }],
             },
             AssetRecord {
@@ -383,6 +388,7 @@ fn two_tile_pack(rotation: AllowedRotation) -> PackRecord {
                     mating_axis: Axis3::NegX,
                     up_reference: Axis3::PosY,
                     snap_tolerance: 0.5,
+                    face_size: None,
                 }],
             },
         ],
@@ -538,6 +544,7 @@ fn authoring_helpers_suggest_snap_duplicate() {
         mating_axis: Axis3::PosZ,
         up_reference: Axis3::PosY,
         snap_tolerance: 0.01,
+        face_size: None,
     };
     snap_connector_to_nearest_face(&mut connector, &bounds);
     if let ConnectorFrame::Frame3d {

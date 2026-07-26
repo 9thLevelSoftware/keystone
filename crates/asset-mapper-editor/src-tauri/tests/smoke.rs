@@ -46,6 +46,7 @@ fn phase2_fixture_can_be_authored_saved_validated_and_exported() {
         mating_axis: Axis3::PosZ,
         up_reference: Axis3::PosY,
         snap_tolerance: 0.01,
+        face_size: None,
     });
 
     let saved = save_pack(state).expect("pack saves");
