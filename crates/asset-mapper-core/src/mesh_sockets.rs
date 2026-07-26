@@ -635,7 +635,7 @@ mod tests {
             for j in 0..50 {
                 let u = min[0] + (i as f32 / 39.0) * (max[0] - min[0]);
                 let v = min[1] + (j as f32 / 49.0) * (max[1] - min[1]);
-                let in_hole = u > -0.4 && u < 0.4 && v >= 0.0 && v < 2.2;
+                let in_hole = (-0.4..0.4).contains(&u) && (0.0..2.2).contains(&v);
                 if !in_hole {
                     positions.push([u, v, z]);
                     positions.push([u, v, min[2]]);

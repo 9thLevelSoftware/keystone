@@ -406,35 +406,6 @@ fn glob_match_from(pat: &[u8], pi: usize, s: &[u8], si: usize) -> bool {
     false
 }
 
-#[cfg(test)]
-mod glob_tests {
-    use super::glob_match;
-
-    #[test]
-    fn single_star_stays_in_one_segment() {
-        assert!(glob_match("models/*.glb", "models/wall.glb"));
-        assert!(!glob_match("models/*.glb", "models/subdir/wall.glb"));
-        assert!(!glob_match("*.glb", "models/wall.glb"));
-        assert!(glob_match("*.glb", "wall.glb"));
-    }
-
-    #[test]
-    fn double_star_crosses_segments() {
-        assert!(glob_match("models/**", "models/wall.glb"));
-        assert!(glob_match("models/**", "models/subdir/wall.glb"));
-        assert!(glob_match("**/wall.glb", "models/subdir/wall.glb"));
-        assert!(glob_match("models/**/*.glb", "models/subdir/wall.glb"));
-        assert!(!glob_match("models/**/*.glb", "models/subdir/wall.gltf"));
-    }
-
-    #[test]
-    fn exact_and_prefix() {
-        assert!(glob_match("decals/foo.glb", "decals/foo.glb"));
-        assert!(glob_match("decals/**", "decals/a/b.glb"));
-        assert!(!glob_match("decals/**", "walls/a.glb"));
-    }
-}
-
 fn snap_tolerance_for(asset: &AssetRecord, sock: &ProposedSocket) -> f32 {
     let longest = asset.dimensions[0]
         .max(asset.dimensions[1])
@@ -687,4 +658,33 @@ fn title_case(id: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod glob_tests {
+    use super::glob_match;
+
+    #[test]
+    fn single_star_stays_in_one_segment() {
+        assert!(glob_match("models/*.glb", "models/wall.glb"));
+        assert!(!glob_match("models/*.glb", "models/subdir/wall.glb"));
+        assert!(!glob_match("*.glb", "models/wall.glb"));
+        assert!(glob_match("*.glb", "wall.glb"));
+    }
+
+    #[test]
+    fn double_star_crosses_segments() {
+        assert!(glob_match("models/**", "models/wall.glb"));
+        assert!(glob_match("models/**", "models/subdir/wall.glb"));
+        assert!(glob_match("**/wall.glb", "models/subdir/wall.glb"));
+        assert!(glob_match("models/**/*.glb", "models/subdir/wall.glb"));
+        assert!(!glob_match("models/**/*.glb", "models/subdir/wall.gltf"));
+    }
+
+    #[test]
+    fn exact_and_prefix() {
+        assert!(glob_match("decals/foo.glb", "decals/foo.glb"));
+        assert!(glob_match("decals/**", "decals/a/b.glb"));
+        assert!(!glob_match("decals/**", "walls/a.glb"));
+    }
 }
