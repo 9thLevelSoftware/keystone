@@ -400,6 +400,10 @@ fn migrate_legacy_sidecar() {
     let migrated: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
     assert_eq!(migrated["schema_version"], 2);
-    assert!(migrated["license_summary"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(
+        migrated["license_summary"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty())
+    );
     assert!(migrated["vocabulary"]["semantic_tags"].as_array().is_some());
 }

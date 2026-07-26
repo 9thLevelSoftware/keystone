@@ -317,3 +317,250 @@ Objects:  {
     assert!((measured.bounds.max[1] - 2.0).abs() < 0.001);
     assert!((measured.dimensions[0] - 2.0).abs() < 0.001);
 }
+
+/// Kaydara binary FBX node draft. EndOffset is patched when written.
+struct FbxNodeDraft {
+    name: String,
+    num_properties: u32,
+    property_list: Vec<u8>,
+    children: Vec<FbxNodeDraft>,
+    is_leaf: bool,
+}
+
+fn fbx_leaf(name: &str, num_properties: u32, property_list: Vec<u8>) -> FbxNodeDraft {
+    FbxNodeDraft {
+        name: name.to_owned(),
+        num_properties,
+        property_list,
+        children: Vec::new(),
+        is_leaf: true,
+    }
+}
+
+fn fbx_parent(name: &str, children: Vec<FbxNodeDraft>) -> FbxNodeDraft {
+    FbxNodeDraft {
+        name: name.to_owned(),
+        num_properties: 0,
+        property_list: Vec::new(),
+        children,
+        is_leaf: false,
+    }
+}
+
+fn zlib_compress(raw: &[u8]) -> Vec<u8> {
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(raw).expect("zlib write");
+    encoder.finish().expect("zlib finish")
+}
+
+fn encode_fbx_array_property(
+    type_code: u8,
+    element_size: usize,
+    raw: &[u8],
+    zlib: bool,
+) -> Vec<u8> {
+    let array_len = (raw.len() / element_size) as u32;
+    let (encoding, payload) = if zlib {
+        (1u32, zlib_compress(raw))
+    } else {
+        (0u32, raw.to_vec())
+    };
+
+    let mut props = Vec::new();
+    props.push(type_code);
+    props.extend_from_slice(&array_len.to_le_bytes());
+    props.extend_from_slice(&encoding.to_le_bytes());
+    props.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    props.extend_from_slice(&payload);
+    props
+}
+
+fn encode_fbx_double_array_property(values: &[f64], zlib: bool) -> Vec<u8> {
+    let mut raw = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        raw.extend_from_slice(&value.to_le_bytes());
+    }
+    encode_fbx_array_property(b'd', 8, &raw, zlib)
+}
+
+fn encode_fbx_float_array_property(values: &[f32], zlib: bool) -> Vec<u8> {
+    let mut raw = Vec::with_capacity(values.len() * 4);
+    for value in values {
+        raw.extend_from_slice(&value.to_le_bytes());
+    }
+    encode_fbx_array_property(b'f', 4, &raw, zlib)
+}
+
+fn write_fbx_node_at(file: &mut Vec<u8>, node: &FbxNodeDraft, large: bool) {
+    let header_pos = file.len();
+    if large {
+        file.extend_from_slice(&0u64.to_le_bytes()); // end_offset
+        file.extend_from_slice(&(node.num_properties as u64).to_le_bytes());
+        file.extend_from_slice(&(node.property_list.len() as u64).to_le_bytes());
+    } else {
+        file.extend_from_slice(&0u32.to_le_bytes());
+        file.extend_from_slice(&node.num_properties.to_le_bytes());
+        file.extend_from_slice(&(node.property_list.len() as u32).to_le_bytes());
+    }
+    file.push(node.name.len() as u8);
+    file.extend_from_slice(node.name.as_bytes());
+    file.extend_from_slice(&node.property_list);
+
+    if !node.is_leaf {
+        for child in &node.children {
+            write_fbx_node_at(file, child, large);
+        }
+        // Null child terminator: 25 bytes (v7500+) or 13 bytes (older).
+        if large {
+            file.extend_from_slice(&[0u8; 25]);
+        } else {
+            file.extend_from_slice(&[0u8; 13]);
+        }
+    }
+
+    let end_offset = file.len();
+    if large {
+        file[header_pos..header_pos + 8].copy_from_slice(&(end_offset as u64).to_le_bytes());
+    } else {
+        file[header_pos..header_pos + 4].copy_from_slice(&(end_offset as u32).to_le_bytes());
+    }
+}
+
+fn write_minimal_binary_fbx(path: &std::path::Path, version: u32, props: Vec<u8>) {
+    let large = version >= 7500;
+    let mut file = Vec::new();
+    file.extend_from_slice(b"Kaydara FBX Binary  \0\x1a\0");
+    file.extend_from_slice(&version.to_le_bytes());
+    let tree = fbx_parent(
+        "Objects",
+        vec![fbx_parent("Geometry", vec![fbx_leaf("Vertices", 1, props)])],
+    );
+    write_fbx_node_at(&mut file, &tree, large);
+    if large {
+        file.extend_from_slice(&[0u8; 25]);
+    } else {
+        file.extend_from_slice(&[0u8; 13]);
+    }
+    std::fs::write(path, file).expect("write binary fbx");
+}
+
+#[test]
+fn measures_binary_fbx_vertices_raw() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("cube_bin.fbx");
+    let vertices = [-1.0_f64, 0.0, -1.0, 1.0, 0.0, -1.0, 1.0, 2.0, 1.0];
+    write_minimal_binary_fbx(
+        &path,
+        7400,
+        encode_fbx_double_array_property(&vertices, false),
+    );
+
+    let measured = measure_asset_bounds(&path)
+        .expect("ok")
+        .expect("binary fbx bounds");
+    assert!((measured.bounds.min[0] - -1.0).abs() < 0.001);
+    assert!((measured.bounds.max[1] - 2.0).abs() < 0.001);
+    assert!((measured.dimensions[0] - 2.0).abs() < 0.001);
+    assert!((measured.dimensions[1] - 2.0).abs() < 0.001);
+}
+
+#[test]
+fn measures_binary_fbx_vertices_zlib() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("cube_z.fbx");
+    let vertices = [-2.0_f64, -3.0, -4.0, 5.0, 6.0, 7.0];
+    write_minimal_binary_fbx(
+        &path,
+        7400,
+        encode_fbx_double_array_property(&vertices, true),
+    );
+
+    let measured = measure_asset_bounds(&path)
+        .expect("ok")
+        .expect("zlib binary fbx bounds");
+    assert!((measured.bounds.min[0] - -2.0).abs() < 0.001);
+    assert!((measured.bounds.min[1] - -3.0).abs() < 0.001);
+    assert!((measured.bounds.min[2] - -4.0).abs() < 0.001);
+    assert!((measured.bounds.max[0] - 5.0).abs() < 0.001);
+    assert!((measured.bounds.max[1] - 6.0).abs() < 0.001);
+    assert!((measured.bounds.max[2] - 7.0).abs() < 0.001);
+}
+
+#[test]
+fn measures_binary_fbx_vertices_v7500() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("cube_v75.fbx");
+    let vertices = [-1.0_f64, 0.0, -1.0, 1.0, 0.0, -1.0, 1.0, 2.0, 1.0];
+    write_minimal_binary_fbx(
+        &path,
+        7500,
+        encode_fbx_double_array_property(&vertices, false),
+    );
+
+    let measured = measure_asset_bounds(&path)
+        .expect("ok")
+        .expect("v7500 binary fbx bounds");
+    assert!((measured.bounds.min[0] - -1.0).abs() < 0.001);
+    assert!((measured.bounds.max[1] - 2.0).abs() < 0.001);
+    assert!((measured.dimensions[0] - 2.0).abs() < 0.001);
+}
+
+#[test]
+fn measures_binary_fbx_float_vertices() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("cube_f.fbx");
+    let vertices = [-1.5_f32, 0.0, -0.5, 2.5, 3.0, 0.5];
+    write_minimal_binary_fbx(
+        &path,
+        7400,
+        encode_fbx_float_array_property(&vertices, false),
+    );
+
+    let measured = measure_asset_bounds(&path)
+        .expect("ok")
+        .expect("float binary fbx bounds");
+    assert!((measured.bounds.min[0] - -1.5).abs() < 0.001);
+    assert!((measured.bounds.min[2] - -0.5).abs() < 0.001);
+    assert!((measured.bounds.max[0] - 2.5).abs() < 0.001);
+    assert!((measured.bounds.max[1] - 3.0).abs() < 0.001);
+    assert!((measured.dimensions[0] - 4.0).abs() < 0.001);
+}
+
+#[test]
+fn binary_fbx_without_vertices_returns_none() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("empty.fbx");
+    let mut file = Vec::new();
+    file.extend_from_slice(b"Kaydara FBX Binary  \0\x1a\0");
+    file.extend_from_slice(&7400u32.to_le_bytes());
+    let tree = fbx_parent("Objects", vec![fbx_leaf("NotGeometry", 0, Vec::new())]);
+    write_fbx_node_at(&mut file, &tree, false);
+    file.extend_from_slice(&[0u8; 13]);
+    std::fs::write(&path, file).expect("write");
+
+    let measured = measure_asset_bounds(&path).expect("ok");
+    assert!(measured.is_none());
+}
+
+/// Adversarial v7500 node with `property_list_len = u64::MAX` must not panic
+/// (checked_add on the property span) and returns `None`.
+#[test]
+fn binary_fbx_huge_property_list_len_does_not_panic() {
+    let temp = tempfile::tempdir().expect("temp");
+    let path = temp.path().join("evil.fbx");
+    let mut file = Vec::new();
+    file.extend_from_slice(b"Kaydara FBX Binary  \0\x1a\0");
+    file.extend_from_slice(&7500u32.to_le_bytes());
+    // Node header (64-bit): end_offset, num_properties, property_list_len, name_len=0
+    file.extend_from_slice(&100u64.to_le_bytes());
+    file.extend_from_slice(&0u64.to_le_bytes());
+    file.extend_from_slice(&u64::MAX.to_le_bytes());
+    file.push(0); // empty name
+    std::fs::write(&path, &file).expect("write");
+
+    let measured = measure_asset_bounds(&path).expect("measure must not panic");
+    assert!(measured.is_none());
+}

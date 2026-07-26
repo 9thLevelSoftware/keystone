@@ -23,6 +23,7 @@ fn phase2_fixture_can_be_authored_saved_validated_and_exported() {
 
     let mut state =
         init_pack_folder(temp.path(), "Phase 2 Smoke".to_owned()).expect("pack initializes");
+    state.pack.license_summary = "MIT OR Apache-2.0".to_owned();
     state.pack.connector_classes.push(ConnectorClass {
         class: "doorway".to_owned(),
         display_name: "Doorway".to_owned(),

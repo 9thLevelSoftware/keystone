@@ -28,13 +28,29 @@ fn init_open_validate_and_save_pack_state() {
     assert!(state.assets[0].preview_supported);
     assert!(state.assets[0].absolute_path.ends_with("wall.glb"));
 
-    let opened = open_pack_folder(temp.path()).expect("pack opens");
+    let mut opened = open_pack_folder(temp.path()).expect("pack opens");
     assert_eq!(opened.pack.pack_id, state.pack.pack_id);
 
-    let validation = validate_pack(opened.clone()).expect("validation runs");
-    assert!(validation.diagnostics.iter().any(|diagnostic| {
+    // Init seeds an UNSPECIFIED license placeholder that fails production validate.
+    let raw_validation = validate_pack(opened.clone()).expect("validation runs");
+    assert!(
+        raw_validation
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code == "missing_license_summary" })
+    );
+    assert!(raw_validation.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == "placeholder_bounds" && diagnostic.asset_id.as_deref() == Some("wall")
     }));
+
+    opened.pack.license_summary = "MIT OR Apache-2.0".to_owned();
+    let validation = validate_pack(opened.clone()).expect("validation runs after license set");
+    assert!(
+        validation
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == asset_mapper_core::Severity::Warning)
+    );
 
     let saved = save_pack(opened).expect("pack saves with warnings");
     assert!(
@@ -113,6 +129,7 @@ fn export_bundle_writes_llm_bundle_when_valid() {
     write_asset(temp.path(), "wall.glb", b"wall");
     let mut state =
         init_pack_folder(temp.path(), "Dungeon Kit".to_owned()).expect("pack initializes");
+    state.pack.license_summary = "MIT OR Apache-2.0".to_owned();
     state.pack.connector_classes.push(ConnectorClass {
         class: "doorway".to_owned(),
         display_name: "Doorway".to_owned(),
