@@ -2,10 +2,12 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
 use asset_mapper_core::{
-    LlmBundle, PackRecord, Severity, ValidationReport, validate_pack as validate_core_pack,
+    AnalyzeOptions, AssemblyPlan, LlmBundle, PackRecord, Severity, ValidationReport,
+    resolve_plan as resolve_core_plan, validate_pack as validate_core_pack,
 };
 use asset_mapper_io::{
-    InitPackOptions, accept_hash_drift as io_accept_hash_drift, canonical_sidecar_path,
+    InitPackOptions, accept_hash_drift as io_accept_hash_drift,
+    analyze_pack_folder as io_analyze_pack_folder, canonical_sidecar_path,
     index_pack_folder as io_index_pack_folder, init_pack_folder as io_init_pack_folder,
     measure_pack_bounds as io_measure_pack_bounds, read_pack_from_input, scan_assets,
     validate_pack_sources, write_pack_sidecar,
@@ -124,6 +126,55 @@ pub fn measure_pack_bounds(
     let report = io_measure_pack_bounds(&pack_root)?;
     let state = open_pack_folder(&pack_root)?;
     Ok(crate::dto::MeasureEditorResult { report, state })
+}
+
+pub fn analyze_pack_folder(
+    path: impl AsRef<Path>,
+    replace_existing: bool,
+) -> Result<crate::dto::AnalyzeEditorResult, EditorCommandError> {
+    let pack_root = canonicalize_existing_path(path)?;
+    let report = io_analyze_pack_folder(
+        &pack_root,
+        AnalyzeOptions {
+            replace_existing_connectors: replace_existing,
+            ..AnalyzeOptions::default()
+        },
+    )?;
+    let state = open_pack_folder(&pack_root)?;
+    Ok(crate::dto::AnalyzeEditorResult { report, state })
+}
+
+/// Read a pack-relative asset into bytes for WebView preview (blob URL).
+pub fn read_pack_asset_bytes(
+    pack_root: impl AsRef<Path>,
+    source_path: &str,
+) -> Result<Vec<u8>, EditorCommandError> {
+    let pack_root = canonicalize_existing_path(pack_root)?;
+    validate_editor_source_path(&pack_root, "preview", source_path)?;
+    let absolute = pack_root.join(source_path);
+    let absolute = canonicalize_existing_path(&absolute)?;
+    if !absolute.starts_with(&pack_root) {
+        return Err(EditorCommandError::new(
+            "invalid_source_path",
+            "asset path escapes pack root",
+        ));
+    }
+    std::fs::read(&absolute).map_err(|error| {
+        EditorCommandError::new(
+            "read_failed",
+            format!("failed to read {}: {error}", absolute.display()),
+        )
+    })
+}
+
+pub fn resolve_assembly_plan(
+    state: EditorPackState,
+    plan: AssemblyPlan,
+) -> Result<crate::dto::ResolveEditorResult, EditorCommandError> {
+    let scene = resolve_core_plan(&state.pack, &plan).map_err(|error| {
+        EditorCommandError::new("resolve_failed", error.to_string())
+    })?;
+    Ok(crate::dto::ResolveEditorResult { scene })
 }
 
 fn state_from_pack(

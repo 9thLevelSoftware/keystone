@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use asset_mapper_core::{
-    AssemblyPlan, LlmBundle, export_connectors_csv, export_godot, export_unity, export_unreal,
-    gltf_keystone_extras, resolve_plan, validate_pack,
+    AnalyzeOptions, AssemblyPlan, LlmBundle, export_connectors_csv, export_godot, export_unity,
+    export_unreal, gltf_keystone_extras, resolve_plan, validate_pack,
 };
 use asset_mapper_io::{
-    InitPackOptions, PackInputKind, accept_hash_drift, index_pack_folder, init_pack_folder,
-    measure_pack_bounds, migrate_pack_input, read_pack_from_input, validate_pack_sources,
+    InitPackOptions, PackInputKind, accept_hash_drift, analyze_pack_folder, index_pack_folder,
+    init_pack_folder, measure_pack_bounds, migrate_pack_input, read_pack_from_input,
+    validate_pack_sources,
 };
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -70,6 +71,13 @@ enum Commands {
     /// Re-measure mesh/image bounds and clear BoundsPlaceholder flags.
     MeasureBounds {
         folder: PathBuf,
+    },
+    /// Measure bounds and auto-propose connectors, classes, and compatibility rules.
+    Analyze {
+        folder: PathBuf,
+        /// Replace existing connectors instead of skipping assets that already have them.
+        #[arg(long, default_value_t = false)]
+        replace: bool,
     },
     /// Migrate pack sidecar to the current schema version.
     Migrate {
@@ -174,6 +182,17 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
         }
         Commands::MeasureBounds { folder } => {
             let report = measure_pack_bounds(folder)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Analyze { folder, replace } => {
+            let report = analyze_pack_folder(
+                folder,
+                AnalyzeOptions {
+                    replace_existing_connectors: replace,
+                    ..AnalyzeOptions::default()
+                },
+            )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
             Ok(ExitCode::SUCCESS)
         }

@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { updateConnectorFrame } from "../editorState";
-import { previewUrlForAsset } from "../three/assetUrls";
+import { previewBlobUrlForAsset } from "../three/assetUrls";
 import { createAssetViewer, type AssetViewer } from "../three/createAssetViewer";
-import type { AssetRecord, EditorPackState } from "../types";
+import type { AssetRecord, EditorPackState, ResolvedScene } from "../types";
 
 interface ViewportProps {
   state: EditorPackState | null;
   selectedAsset: AssetRecord | null;
   onStateChange: (state: EditorPackState) => void;
+  /** When set, show multi-asset assembly instead of single-asset authoring. */
+  assemblyScene?: ResolvedScene | null;
+  assemblyPackRoot?: string | null;
 }
 
 export default function Viewport({
   state,
   selectedAsset,
   onStateChange,
+  assemblyScene = null,
+  assemblyPackRoot = null,
 }: ViewportProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<AssetViewer | null>(null);
@@ -27,7 +32,6 @@ export default function Viewport({
       null,
     [selectedAsset?.asset_id, state?.assets],
   );
-  const previewUrl = previewUrlForAsset(selectedStatus);
 
   useEffect(() => {
     stateRef.current = state;
@@ -41,16 +45,9 @@ export default function Viewport({
     [],
   );
 
+  // Assembly multi-asset preview
   useEffect(() => {
-    if (!selectedAsset) {
-      viewerRef.current?.clear();
-      setMessage("Select an asset to preview.");
-      return;
-    }
-
-    if (!previewUrl) {
-      viewerRef.current?.clear();
-      setMessage("Preview unavailable for this asset.");
+    if (!assemblyScene || !state || !assemblyPackRoot) {
       return;
     }
 
@@ -61,40 +58,152 @@ export default function Viewport({
     }
 
     let cancelled = false;
-    setMessage("Loading preview...");
-    viewer
-      .loadAsset(previewUrl, selectedAsset)
-      .then(() => {
+    let revokes: Array<() => void> = [];
+    setMessage("Loading assembly preview...");
+
+    (async () => {
+      try {
+        const loads: Array<{
+          url: string;
+          asset: AssetRecord;
+          translation: [number, number, number];
+          rotation: [number, number, number, number];
+        }> = [];
+
+        for (const placement of assemblyScene.placements) {
+          const asset = state.pack.assets.find(
+            (a) => a.asset_id === placement.asset_id,
+          );
+          const status = state.assets.find(
+            (a) => a.assetId === placement.asset_id,
+          );
+          if (!asset || !status) {
+            continue;
+          }
+          const blob = await previewBlobUrlForAsset(assemblyPackRoot, status);
+          if (!blob) {
+            continue;
+          }
+          revokes.push(blob.revoke);
+          loads.push({
+            url: blob.url,
+            asset,
+            translation: placement.transform.translation,
+            rotation: placement.transform.rotation_quat_xyzw,
+          });
+        }
+
         if (cancelled) {
           return;
         }
 
+        await viewer.loadAssembly(loads);
+        setMessage(
+          loads.length === 0
+            ? "Assembly preview: no loadable assets."
+            : `Assembly preview (${loads.length} piece(s)).`,
+        );
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setMessage(error instanceof Error ? error.message : String(error));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      for (const revoke of revokes) {
+        revoke();
+      }
+    };
+  }, [assemblyScene, assemblyPackRoot, state?.packRoot]);
+
+  // Single-asset authoring preview
+  useEffect(() => {
+    if (assemblyScene) {
+      return;
+    }
+
+    if (!selectedAsset || !state) {
+      viewerRef.current?.clear();
+      setMessage("Select an asset to preview.");
+      return;
+    }
+
+    if (!selectedStatus?.previewSupported) {
+      viewerRef.current?.clear();
+      setMessage(
+        selectedStatus?.exists === false
+          ? "Source file missing — cannot preview."
+          : "Preview only supports .glb / .gltf. Convert other formats or use measure bounds.",
+      );
+      return;
+    }
+
+    const viewer = ensureViewer();
+    if (!viewer) {
+      setMessage("Preview unavailable.");
+      return;
+    }
+
+    let cancelled = false;
+    let revoke: (() => void) | null = null;
+    setMessage("Loading preview...");
+
+    previewBlobUrlForAsset(state.packRoot, selectedStatus)
+      .then(async (blob) => {
+        if (cancelled) {
+          return;
+        }
+        if (!blob) {
+          setMessage("Could not load asset bytes for preview.");
+          return;
+        }
+        revoke = blob.revoke;
+        await viewer.loadAsset(blob.url, selectedAsset);
+        if (cancelled) {
+          return;
+        }
         viewer.setConnectors(selectedAsset.connectors);
-        viewer.selectConnector(state?.selectedConnectorId ?? null);
+        viewer.selectConnector(state.selectedConnectorId ?? null);
         setMessage("");
       })
       .catch((error: unknown) => {
-        if (cancelled) {
-          return;
+        if (!cancelled) {
+          setMessage(
+            error instanceof Error
+              ? `Preview failed: ${error.message}`
+              : `Preview failed: ${String(error)}`,
+          );
         }
-
-        setMessage(error instanceof Error ? error.message : String(error));
       });
 
     return () => {
       cancelled = true;
+      revoke?.();
     };
-  }, [previewUrl, selectedAsset?.asset_id]);
+  }, [
+    assemblyScene,
+    selectedAsset?.asset_id,
+    selectedStatus?.absolutePath,
+    selectedAsset?.connectors,
+    state?.packRoot,
+    state?.selectedConnectorId,
+  ]);
 
   useEffect(() => {
-    if (selectedAsset) {
-      viewerRef.current?.setConnectors(selectedAsset.connectors);
+    if (assemblyScene || !selectedAsset) {
+      return;
     }
-  }, [selectedAsset?.connectors, selectedAsset]);
+    viewerRef.current?.setConnectors(selectedAsset.connectors);
+  }, [assemblyScene, selectedAsset?.connectors, selectedAsset]);
 
   useEffect(() => {
+    if (assemblyScene) {
+      return;
+    }
     viewerRef.current?.selectConnector(state?.selectedConnectorId ?? null);
-  }, [state?.selectedConnectorId]);
+  }, [assemblyScene, state?.selectedConnectorId]);
 
   function ensureViewer(): AssetViewer | null {
     if (viewerRef.current) {
@@ -115,21 +224,25 @@ export default function Viewport({
         }
 
         onStateChange(
-          updateConnectorFrame(currentState, currentState.selectedAssetId, connectorId, {
-            position,
-            orientation_quat_xyzw: orientation,
-          }),
+          updateConnectorFrame(
+            currentState,
+            currentState.selectedAssetId,
+            connectorId,
+            {
+              position,
+              orientation_quat_xyzw: orientation,
+            },
+          ),
         );
       },
     );
-
     return viewerRef.current;
   }
 
   return (
-    <section className="viewport-panel" aria-label="Asset preview">
+    <section className="viewport-panel">
       <div ref={containerRef} className="viewport-canvas" />
-      {message ? <div className="viewport-placeholder">{message}</div> : null}
+      {message ? <p className="viewport-message">{message}</p> : null}
     </section>
   );
 }

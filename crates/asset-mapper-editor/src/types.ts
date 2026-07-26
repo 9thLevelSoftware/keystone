@@ -129,6 +129,27 @@ export interface EditorAssetStatus {
   previewSupported: boolean;
 }
 
+export interface AssemblyPlan {
+  root_asset_id: string;
+  operations: {
+    placed_asset_id: string;
+    placed_connector_id: string;
+    anchor_asset_id: string;
+    anchor_connector_id: string;
+    rotation_choice_deg: number | null;
+  }[];
+}
+
+export interface ResolvedScene {
+  placements: {
+    asset_id: string;
+    transform: {
+      translation: Vec3;
+      rotation_quat_xyzw: QuatXyzw;
+    };
+  }[];
+}
+
 export interface EditorPackState {
   packRoot: string;
   sidecarPath: string;
